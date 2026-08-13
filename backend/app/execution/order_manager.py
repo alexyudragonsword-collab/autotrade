@@ -48,7 +48,8 @@ class OrderManager:
             order = Order(
                 signal_id=signal_id, broker=intent.broker, symbol=intent.symbol,
                 market=intent.market, side=intent.side, order_type=intent.order_type,
-                qty=intent.qty, limit_price=intent.est_price if intent.order_type == "limit" else None,
+                qty=intent.qty, multiplier=intent.multiplier or 1.0,
+                limit_price=intent.est_price if intent.order_type == "limit" else None,
                 status=OrderStatus.PENDING_SUBMIT,
             )
             db.add(order)
@@ -61,6 +62,7 @@ class OrderManager:
                     symbol=intent.symbol, market=intent.market, side=intent.side,
                     order_type=intent.order_type, qty=intent.qty,
                     limit_price=order.limit_price, hint_price=intent.est_price,
+                    multiplier=intent.multiplier or 1.0,
                 ))
                 order.broker_order_id = ref.broker_order_id
                 if order.status == OrderStatus.PENDING_SUBMIT:
@@ -133,16 +135,21 @@ class OrderManager:
             if order is None:
                 logger.warning("收到未知成交回报: %s", fill.broker_order_id)
                 return
-            # 卖出成交按当时持仓均价落已实现盈亏（风控日亏损据此精确累加）
+            # 减仓成交按「成交前」持仓均价落已实现盈亏（含合约乘数）：
+            # 卖出减多仓 / 买入回补空仓（期权卖方）
             realized = None
-            if order.side == "sell":
-                from app.db.models import Position
+            from app.db.models import Position
 
-                pos = db.scalar(select(Position).where(Position.broker == order.broker,
-                                                       Position.symbol == order.symbol))
-                cost_basis = pos.avg_cost if pos and pos.avg_cost else None
-                if cost_basis is not None:
-                    realized = (fill.price - cost_basis) * fill.qty - fill.fee
+            pos = db.scalar(select(Position).where(Position.broker == order.broker,
+                                                   Position.symbol == order.symbol))
+            mult = order.multiplier or 1.0
+            if pos is not None and pos.avg_cost:
+                if order.side == "sell" and pos.qty > 0:
+                    closed = min(fill.qty, pos.qty)
+                    realized = (fill.price - pos.avg_cost) * closed * mult - fill.fee
+                elif order.side == "buy" and pos.qty < 0:
+                    closed = min(fill.qty, -pos.qty)
+                    realized = (pos.avg_cost - fill.price) * closed * mult - fill.fee
             db.add(TradeFill(order_id=order.id, broker_trade_id=fill.broker_trade_id,
                              qty=fill.qty, price=fill.price, fee=fill.fee,
                              realized_pnl=realized))
@@ -207,7 +214,8 @@ class OrderManager:
                 db.query(Position).filter(Position.broker == name).delete()
                 for s in snapshots:
                     db.add(Position(broker=name, symbol=s.symbol, market=Market(s.market),
-                                    qty=s.qty, avg_cost=s.avg_cost))
+                                    qty=s.qty, avg_cost=s.avg_cost,
+                                    multiplier=getattr(s, "multiplier", 1.0) or 1.0))
                 db.commit()
         finally:
             db.close()

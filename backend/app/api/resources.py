@@ -107,7 +107,8 @@ async def list_positions(db: Session = Depends(get_db)):
                 quote = await adapter.get_quote(p.symbol)
                 if quote:
                     item["last_price"] = quote.price
-                    item["unrealized_pnl"] = round((quote.price - p.avg_cost) * p.qty, 2)
+                    item["unrealized_pnl"] = round(
+                        (quote.price - p.avg_cost) * p.qty * (p.multiplier or 1.0), 2)
             except Exception:
                 pass
         out.append(item)
@@ -135,6 +136,11 @@ class RiskUpdate(BaseModel):
     stop_loss_pct: float | None = None
     take_profit_pct: float | None = None
     trailing_stop_pct: float | None = None
+    options_trading_enabled: bool | None = None
+    allow_naked_selling: bool | None = None
+    max_short_option_notional: float | None = None
+    expiry_warn_days: int | None = None
+    auto_close_before_expiry: bool | None = None
 
 
 @router.get("/risk")
@@ -354,11 +360,15 @@ async def toggle_broker_account(account_id: int, db: Session = Depends(get_db)):
 
 class ManualOrderBody(BaseModel):
     broker: str
-    symbol: str  # 内部格式：US.AAPL / HK.00700 / SH.600519
+    symbol: str  # 股票：US.AAPL / HK.00700 / SH.600519；期权：完整符号或正股+下面三字段
     side: str  # buy | sell
     order_type: str = "market"
     qty: float
     limit_price: float | None = None
+    # 期权（可选）：提供则与正股 symbol 组合成合约；或直接在 symbol 填完整期权符号
+    expiry: str | None = None  # YYYYMMDD / YYYY-MM-DD
+    strike: float | None = None
+    right: str | None = None  # C | P
 
 
 @router.post("/manual-order")
@@ -366,11 +376,29 @@ async def manual_order(body: ManualOrderBody, db: Session = Depends(get_db)):
     """手动下单：与信号同样经过风控闸门，并以 Signal(source=manual) 留痕。"""
     import uuid
 
+    from app.domain.contracts import OptionContract, is_option
     from app.domain.enums import Market, OrderSide, OrderType, SignalStatus
     from app.domain.schemas import OrderIntent
     from app.risk.engine import get_risk_engine
+    from app.signals.pipeline import prefetch_cash_if_option_sell, resolve_multiplier
 
-    prefix = body.symbol.split(".", 1)[0]
+    symbol = body.symbol.strip()
+    option_fields = (body.expiry, body.strike, body.right)
+    if any(f is not None and f != "" for f in option_fields):
+        if is_option(symbol):
+            raise HTTPException(400, "symbol 已是完整期权符号，不要再传 expiry/strike/right")
+        if not all(f is not None and f != "" for f in option_fields):
+            raise HTTPException(400, "期权下单需同时提供 expiry / strike / right")
+        expiry = body.expiry.replace("-", "")
+        right = {"c": "C", "call": "C", "p": "P", "put": "P"}.get(body.right.lower())
+        if len(expiry) != 8 or not expiry.isdigit() or right is None or body.strike <= 0:
+            raise HTTPException(400, "期权字段不合法（expiry=YYYYMMDD, right=C/P, strike>0）")
+        symbol = OptionContract(underlying=symbol, expiry=expiry,
+                                right=right, strike=body.strike).symbol()
+    elif "|" in symbol and not is_option(symbol):
+        raise HTTPException(400, f"期权符号格式不合法: {symbol}（应为 US.AAPL|20250919|C|230）")
+
+    prefix = symbol.split(".", 1)[0]
     market = {"US": Market.US, "HK": Market.HK, "SH": Market.CN, "SZ": Market.CN}.get(prefix)
     if market is None:
         raise HTTPException(400, "symbol 必须是内部格式，如 US.AAPL / HK.00700 / SH.600519")
@@ -388,28 +416,30 @@ async def manual_order(body: ManualOrderBody, db: Session = Depends(get_db)):
     if est_price is None:
         adapter = get_broker_manager().get_if_connected(body.broker)
         if adapter is not None:
-            quote = await adapter.get_quote(body.symbol)
+            quote = await adapter.get_quote(symbol)
             if quote is not None:
                 est_price = quote.price
-        if est_price is None:
+        if est_price is None and not is_option(symbol):
             import asyncio as aio
 
             from app.data.store import get_bar_store
 
-            est_price = await aio.to_thread(get_bar_store().last_close, body.symbol)
+            est_price = await aio.to_thread(get_bar_store().last_close, symbol)
 
     sig = Signal(source="manual", dedup_key=f"manual:{uuid.uuid4().hex}",
-                 symbol=body.symbol, market=market, action=body.side,
+                 symbol=symbol, market=market, action=body.side,
                  quantity=body.qty, order_type=body.order_type, price=est_price,
                  status=SignalStatus.RECEIVED)
     db.add(sig)
     db.commit()
     db.refresh(sig)
 
-    intent = OrderIntent(symbol=body.symbol, market=market, side=side,
+    multiplier = await resolve_multiplier(body.broker, symbol)
+    intent = OrderIntent(symbol=symbol, market=market, side=side,
                          order_type=order_type, qty=body.qty, est_price=est_price,
-                         broker=body.broker, strategy="manual")
-    decision = get_risk_engine().check(db, intent)
+                         broker=body.broker, strategy="manual", multiplier=multiplier)
+    account_cash = await prefetch_cash_if_option_sell(intent)
+    decision = get_risk_engine().check(db, intent, account_cash=account_cash)
     if not decision.allowed:
         sig.status = SignalStatus.REJECTED_RISK
         sig.reject_reason = f"[{decision.rule_name}] {decision.reason}"[:300]

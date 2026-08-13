@@ -43,6 +43,29 @@
             <el-input-number v-model="cfg.trailing_stop_pct" :min="0" :max="100" :precision="1" style="width: 200px" />
             <span class="hint">距持仓期最高价回撤该比例时平仓</span>
           </el-form-item>
+          <el-divider>期权交易</el-divider>
+          <el-form-item label="启用期权交易">
+            <el-switch v-model="cfg.options_trading_enabled" />
+            <span class="hint">关闭时所有期权订单被风控拒绝</span>
+          </el-form-item>
+          <el-form-item label="允许裸卖">
+            <el-switch v-model="cfg.allow_naked_selling" />
+            <span class="hint" style="color: #ef4444">
+              ⚠️ 裸卖 Call 理论亏损无限；默认档仅允许备兑 Call / 现金担保 Put
+            </span>
+          </el-form-item>
+          <el-form-item v-if="cfg.allow_naked_selling" label="空头名义上限">
+            <el-input-number v-model="cfg.max_short_option_notional" :min="0" :step="50000" style="width: 200px" />
+            <span class="hint">Σ 行权价×乘数×张数</span>
+          </el-form-item>
+          <el-form-item label="到期提醒天数">
+            <el-input-number v-model="cfg.expiry_warn_days" :min="0" :max="30" style="width: 200px" />
+            <span class="hint">到期前 N 天每日推送提醒</span>
+          </el-form-item>
+          <el-form-item label="到期自动平仓">
+            <el-switch v-model="cfg.auto_close_before_expiry" />
+            <span class="hint">到期前 1 日自动市价平掉期权持仓</span>
+          </el-form-item>
           <el-button type="primary" @click="save">保存</el-button>
         </el-form>
       </el-card>

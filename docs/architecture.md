@@ -104,6 +104,24 @@ risk_events / notify_channels / app_settings / users。
   ghcr.io/<owner>/<repo>（含 buildx 缓存）。
 - **报告导出**：`backtest/report.py` 生成自包含 HTML（内联 SVG 曲线，零外部依赖）。
 
+## 期权交易（迭代9）
+
+- **合约模型**：`domain/contracts.py` —— 规范符号 `US.AAPL|20250919|C|230`（保留市场前缀，
+  既有路由零改动）；乘数全链路核算（风控名义、成交盈亏、账户净值、浮动盈亏）。
+- **空头持仓**：Position.qty 可为负（期权卖开），paper 支持带符号撮合（股票仍禁做空）；
+  已实现盈亏泛化为"减仓成交"计算（卖出减多仓/买入回补空仓），并修复了全平后盈亏丢失的问题。
+- **卖方风控两档**：默认 `CoveredOrSecuredRule`（卖 Call 需足额正股备兑、卖 Put 需现金担保，
+  现金取实时账户→净值快照→fail-closed）；开启 `allow_naked_selling` 后由
+  `NakedNotionalRule`（Σ 行权价×乘数×张数 ≤ 上限）约束。买入平空视为减风险，不受限额规则。
+- **守护**：空头方向自动反转（涨破止损/低水位反弹移动止损→买回平仓）；
+  `run_expiry_guard`（每4小时）到期前 N 天每日提醒 + 可选到期前 1 日自动平仓（dedup 幂等）。
+- **券商**：IBKR `Option` 合约 + qualify 缓存 + `reqSecDefOptParams` 链（10 分钟缓存、
+  strikes_around 限幅节流）；富途美股期权代码可逆构造、**HK 期权代码经链查询建双向缓存**
+  （未加载时下单会提示先查链）；IB 期权 avgCost 为每张口径，入库已折算为每股。
+- **入口**：TV 告警 expiry/strike/right、手动下单双形态、期权链页面点击预填。
+- **仍在范围外**：期权回测（无数据源）、希腊字母/IV、组合腿单、行权/被行权
+  （被行权后的正股变动经持仓同步自然体现）。
+
 ## 已知取舍
 
 - 日亏损基于成交时逐笔落库的 realized_pnl（持仓均价口径），IBKR 会再用 commissionReport

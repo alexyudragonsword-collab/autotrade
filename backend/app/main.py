@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.api import auth, performance, resources, trading_config, ws
+from app.api import auth, options, performance, resources, trading_config, ws
 from app.bootstrap import seed_all
 from app.db.base import SessionLocal, init_db
 from app.logging_conf import setup_logging
@@ -64,6 +64,7 @@ def create_app() -> FastAPI:
     app.include_router(trading_config.router)
     app.include_router(performance.router)
     app.include_router(ws.router)
+    app.include_router(options.router)
     app.include_router(webhook.router)
 
     # 前端构建产物（frontend/dist）由后端托管；SPA 路由回退到 index.html

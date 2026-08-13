@@ -52,7 +52,15 @@
           <el-table-column prop="broker" label="券商" width="100" />
           <el-table-column prop="symbol" label="标的" width="130" />
           <el-table-column prop="market" label="市场" width="80" />
-          <el-table-column prop="qty" label="数量" width="110" />
+          <el-table-column prop="qty" label="数量" width="110">
+            <template #default="{ row }">
+              <span :style="{ color: row.qty < 0 ? '#10b981' : '' }">{{ row.qty }}</span>
+              <el-tag v-if="row.qty < 0" type="success" size="small" style="margin-left: 4px">空头</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="multiplier" label="乘数" width="70">
+            <template #default="{ row }">{{ row.multiplier > 1 ? `×${row.multiplier}` : '-' }}</template>
+          </el-table-column>
           <el-table-column prop="avg_cost" label="成本价" width="110"><template #default="{ row }">{{ fmt(row.avg_cost) }}</template></el-table-column>
           <el-table-column prop="last_price" label="现价" width="110"><template #default="{ row }">{{ fmt(row.last_price) }}</template></el-table-column>
           <el-table-column prop="unrealized_pnl" label="浮动盈亏" width="130">
@@ -66,40 +74,7 @@
     </el-tab-pane>
   </el-tabs>
 
-  <el-dialog v-model="manualDialog" title="手动下单（经过风控）" width="440px">
-    <el-form :model="manualForm" label-width="90px">
-      <el-form-item label="账户">
-        <el-select v-model="manualForm.broker">
-          <el-option v-for="a in accounts" :key="a.name" :label="`${a.name}（${a.type}）`" :value="a.name" />
-        </el-select>
-      </el-form-item>
-      <el-form-item label="标的">
-        <el-input v-model="manualForm.symbol" placeholder="US.AAPL / HK.00700 / SH.600519" />
-      </el-form-item>
-      <el-form-item label="方向">
-        <el-radio-group v-model="manualForm.side">
-          <el-radio value="buy">买入</el-radio>
-          <el-radio value="sell">卖出</el-radio>
-        </el-radio-group>
-      </el-form-item>
-      <el-form-item label="类型">
-        <el-radio-group v-model="manualForm.order_type">
-          <el-radio value="market">市价</el-radio>
-          <el-radio value="limit">限价</el-radio>
-        </el-radio-group>
-      </el-form-item>
-      <el-form-item label="数量">
-        <el-input-number v-model="manualForm.qty" :min="1" style="width: 180px" />
-      </el-form-item>
-      <el-form-item v-if="manualForm.order_type === 'limit'" label="限价">
-        <el-input-number v-model="manualForm.limit_price" :min="0" :precision="3" style="width: 180px" />
-      </el-form-item>
-    </el-form>
-    <template #footer>
-      <el-button @click="manualDialog = false">取消</el-button>
-      <el-button type="primary" :loading="placing" @click="placeManual">下单</el-button>
-    </template>
-  </el-dialog>
+  <manual-order-dialog v-model="manualDialog" @placed="loadOrders(1)" />
 </template>
 
 <script setup>
@@ -107,6 +82,7 @@ import { onMounted, onUnmounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import client from '../api/client'
 import OrderStatus from '../components/OrderStatus.vue'
+import ManualOrderDialog from '../components/ManualOrderDialog.vue'
 import { fmt, ts } from '../utils'
 import { onEvent } from '../ws'
 
@@ -120,20 +96,6 @@ const positions = ref([])
 const posLoading = ref(false)
 const syncing = ref(false)
 const manualDialog = ref(false)
-const placing = ref(false)
-const manualForm = ref({ broker: 'paper', symbol: '', side: 'buy', order_type: 'market', qty: 100, limit_price: null })
-
-async function placeManual() {
-  placing.value = true
-  try {
-    const data = await client.post('/api/manual-order', manualForm.value)
-    ElMessage.success(`订单 #${data.order_id} 已提交（${data.status}）`)
-    manualDialog.value = false
-    loadOrders(1)
-  } finally {
-    placing.value = false
-  }
-}
 
 async function loadOrders(p = 1) {
   page.value = p

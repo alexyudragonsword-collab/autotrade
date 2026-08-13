@@ -40,7 +40,7 @@ class Signal(Base):
     raw_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     dedup_key: Mapped[str] = mapped_column(String(200), unique=True, index=True)
     strategy_name: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
-    symbol: Mapped[str] = mapped_column(String(32), index=True)
+    symbol: Mapped[str] = mapped_column(String(64), index=True)
     market: Mapped[str] = mapped_column(String(8))
     action: Mapped[str] = mapped_column(String(8))
     quantity: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -57,11 +57,12 @@ class Order(Base):
     signal_id: Mapped[int | None] = mapped_column(ForeignKey("signals.id"), nullable=True, index=True)
     broker: Mapped[str] = mapped_column(String(16), index=True)
     broker_order_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
-    symbol: Mapped[str] = mapped_column(String(32), index=True)
+    symbol: Mapped[str] = mapped_column(String(64), index=True)
     market: Mapped[str] = mapped_column(String(8))
     side: Mapped[str] = mapped_column(String(8))
     order_type: Mapped[str] = mapped_column(String(8))
     qty: Mapped[float] = mapped_column(Float)
+    multiplier: Mapped[float] = mapped_column(Float, default=1.0)  # 合约乘数（期权）
     limit_price: Mapped[float | None] = mapped_column(Float, nullable=True)
     filled_qty: Mapped[float] = mapped_column(Float, default=0.0)
     avg_fill_price: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -88,11 +89,12 @@ class Position(Base):
     __tablename__ = "positions"
     id: Mapped[int] = mapped_column(primary_key=True)
     broker: Mapped[str] = mapped_column(String(16), index=True)
-    symbol: Mapped[str] = mapped_column(String(32), index=True)
+    symbol: Mapped[str] = mapped_column(String(64), index=True)
     market: Mapped[str] = mapped_column(String(8))
-    qty: Mapped[float] = mapped_column(Float, default=0.0)
-    avg_cost: Mapped[float] = mapped_column(Float, default=0.0)
-    high_water_price: Mapped[float | None] = mapped_column(Float, nullable=True)  # 移动止损高水位
+    qty: Mapped[float] = mapped_column(Float, default=0.0)  # 负数 = 空头（期权卖方）
+    avg_cost: Mapped[float] = mapped_column(Float, default=0.0)  # 每股口径（不含乘数）
+    multiplier: Mapped[float] = mapped_column(Float, default=1.0)
+    high_water_price: Mapped[float | None] = mapped_column(Float, nullable=True)  # 多头高水位/空头低水位
     last_sync_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -176,6 +178,12 @@ class RiskConfig(Base):
     stop_loss_pct: Mapped[float] = mapped_column(Float, default=0.0)  # 亏损百分比止损
     take_profit_pct: Mapped[float] = mapped_column(Float, default=0.0)  # 盈利百分比止盈
     trailing_stop_pct: Mapped[float] = mapped_column(Float, default=0.0)  # 距高水位回撤百分比
+    # ---- 期权 ----
+    options_trading_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    allow_naked_selling: Mapped[bool] = mapped_column(Boolean, default=False)  # 关=仅备兑/现金担保
+    max_short_option_notional: Mapped[float] = mapped_column(Float, default=100000.0)  # 空头名义上限
+    expiry_warn_days: Mapped[int] = mapped_column(Integer, default=3)  # 到期前提醒天数
+    auto_close_before_expiry: Mapped[bool] = mapped_column(Boolean, default=False)  # 到期前1日自动平仓
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 

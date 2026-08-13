@@ -165,9 +165,18 @@ class TelegramBot:
             db.close()
         if not rows:
             return "当前无持仓"
+        from app.domain.contracts import OptionContract, days_to_expiry
+
         lines = ["📋 当前持仓"]
         for p in rows:
-            lines.append(f"[{p.broker}] {p.symbol}  {p.qty:g} 股 @ {p.avg_cost:.2f}")
+            oc = OptionContract.parse(p.symbol)
+            if oc is not None:
+                dte = days_to_expiry(p.symbol)
+                tag = "空" if p.qty < 0 else "多"
+                lines.append(f"[{p.broker}] {oc.display()} ×{p.multiplier:g}  "
+                             f"{tag} {abs(p.qty):g} 张 @ {p.avg_cost:.2f}（剩{dte}天）")
+            else:
+                lines.append(f"[{p.broker}] {p.symbol}  {p.qty:g} 股 @ {p.avg_cost:.2f}")
         return "\n".join(lines)
 
     async def _cmd_orders(self) -> str:

@@ -10,6 +10,7 @@ const routes = [
       { path: 'dashboard', component: () => import('../views/Dashboard.vue'), meta: { title: '仪表盘' } },
       { path: 'signals', component: () => import('../views/SignalLog.vue'), meta: { title: '信号日志' } },
       { path: 'orders', component: () => import('../views/Orders.vue'), meta: { title: '订单持仓' } },
+      { path: 'options', component: () => import('../views/OptionChain.vue'), meta: { title: '期权链' } },
       { path: 'strategies', component: () => import('../views/Strategies.vue'), meta: { title: '策略管理' } },
       { path: 'editor', component: () => import('../views/StrategyEditor.vue'), meta: { title: '策略编辑器' } },
       { path: 'screener', component: () => import('../views/Screener.vue'), meta: { title: '选股器' } },

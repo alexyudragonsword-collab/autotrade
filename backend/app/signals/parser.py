@@ -52,6 +52,30 @@ def parse_tv_alert(payload: dict) -> NormalizedSignal:
     except ValueError as e:
         raise SignalParseError(str(e))
 
+    # 期权字段（可选）：出现任一则三者必填，正股符号映射到指定合约
+    expiry_raw = str(payload.get("expiry") or "").strip()
+    strike_raw = payload.get("strike")
+    right_raw = str(payload.get("right") or "").strip()
+    if expiry_raw or strike_raw is not None or right_raw:
+        from app.domain.contracts import OptionContract
+        from app.domain.enums import Market as _Market
+
+        if not (expiry_raw and strike_raw is not None and right_raw):
+            raise SignalParseError("期权信号必须同时提供 expiry / strike / right 三个字段")
+        expiry = expiry_raw.replace("-", "")
+        if len(expiry) != 8 or not expiry.isdigit():
+            raise SignalParseError(f"expiry 必须是 YYYYMMDD 或 YYYY-MM-DD: {expiry_raw!r}")
+        right = {"c": "C", "call": "C", "p": "P", "put": "P"}.get(right_raw.lower())
+        if right is None:
+            raise SignalParseError(f"right 必须是 C/P/call/put: {right_raw!r}")
+        strike = _as_float(strike_raw, "strike")
+        if strike is None or strike <= 0:
+            raise SignalParseError(f"strike 必须为正数: {strike_raw!r}")
+        if market == _Market.CN:
+            raise SignalParseError("暂不支持 A股期权")
+        symbol = OptionContract(underlying=symbol, expiry=expiry,
+                                right=right, strike=strike).symbol()
+
     action_raw = str(payload.get("action") or "").lower().strip()
     try:
         action = SignalAction(action_raw)

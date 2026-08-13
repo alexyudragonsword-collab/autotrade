@@ -159,23 +159,48 @@ class IbkrAdapter(BrokerAdapter):
 
     @staticmethod
     def _contract(symbol: str):
-        from ib_async import Stock
+        from ib_async import Option, Stock
 
+        from app.domain.contracts import OptionContract
+
+        oc = OptionContract.parse(symbol)
+        if oc is not None:
+            return Option(oc.ticker, oc.expiry, oc.strike, oc.right, "SMART", currency="USD")
         ticker = symbol.split(".", 1)[-1]
         return Stock(ticker, "SMART", "USD")
+
+    async def _qualified(self, symbol: str):
+        """期权合约先 qualify（拿 conId），按 symbol 缓存节省 pacing 预算。"""
+        from app.domain.contracts import is_option
+
+        contract = self._contract(symbol)
+        if not is_option(symbol):
+            return contract
+        if not hasattr(self, "_qualified_cache"):
+            self._qualified_cache: dict[str, object] = {}
+        cached = self._qualified_cache.get(symbol)
+        if cached is not None:
+            return cached
+        await self._throttle.acquire()
+        result = await self._ib.qualifyContractsAsync(contract)
+        if not result:
+            raise BrokerError(f"IBKR 无法识别期权合约 {symbol}")
+        self._qualified_cache[symbol] = result[0]
+        return result[0]
 
     async def place_order(self, req: OrderRequest) -> BrokerOrderRef:
         from ib_async import LimitOrder, MarketOrder
 
         if self._ib is None:
             raise BrokerError("ibkr 未连接")
+        contract = await self._qualified(req.symbol)
         await self._throttle.acquire()
         action = "BUY" if req.side == OrderSide.BUY else "SELL"
         if req.order_type == OrderType.LIMIT:
             order = LimitOrder(action, req.qty, req.limit_price)
         else:
             order = MarketOrder(action, req.qty)
-        trade = self._ib.placeOrder(self._contract(req.symbol), order)
+        trade = self._ib.placeOrder(contract, order)
         return BrokerOrderRef(str(trade.order.orderId))
 
     async def cancel_order(self, broker_order_id: str) -> None:
@@ -202,17 +227,31 @@ class IbkrAdapter(BrokerAdapter):
         return None
 
     async def get_positions(self) -> list[PositionSnapshot]:
+        from app.domain.contracts import OptionContract
+
         if self._ib is None:
             raise BrokerError("ibkr 未连接")
         await self._throttle.acquire()
         positions = await self._ib.reqPositionsAsync()
         out = []
         for pos in positions:
-            if pos.contract.secType != "STK":
-                continue
-            out.append(PositionSnapshot(
-                f"US.{pos.contract.symbol}", Market.US,
-                float(pos.position), float(pos.avgCost or 0)))
+            sec = pos.contract.secType
+            if sec == "STK":
+                out.append(PositionSnapshot(
+                    f"US.{pos.contract.symbol}", Market.US,
+                    float(pos.position), float(pos.avgCost or 0)))
+            elif sec == "OPT":
+                mult = float(pos.contract.multiplier or 100)
+                oc = OptionContract(
+                    underlying=f"US.{pos.contract.symbol}",
+                    expiry=str(pos.contract.lastTradeDateOrContractMonth)[:8],
+                    right=str(pos.contract.right)[:1].upper(),
+                    strike=float(pos.contract.strike))
+                # IB 的 avgCost 是每张合约成本（含乘数）→ 统一为每股口径
+                out.append(PositionSnapshot(
+                    oc.symbol(), Market.US, float(pos.position),
+                    float(pos.avgCost or 0) / mult if mult else 0.0,
+                    multiplier=mult))
         return out
 
     async def get_account(self) -> AccountSnapshot:
@@ -227,12 +266,112 @@ class IbkrAdapter(BrokerAdapter):
             buying_power=float(acc.get("BuyingPower", 0) or 0),
         )
 
+    # ---------- 期权链 ----------
+
+    async def _opt_params(self, underlying: str):
+        """reqSecDefOptParams 结果（SMART），按标的缓存 10 分钟。"""
+        import time as _t
+
+        from ib_async import Stock
+
+        if not hasattr(self, "_chain_cache"):
+            self._chain_cache: dict[str, tuple[float, object]] = {}
+        cached = self._chain_cache.get(underlying)
+        if cached is not None and _t.monotonic() - cached[0] < 600:
+            return cached[1]
+        ticker = underlying.split(".", 1)[-1]
+        stock = Stock(ticker, "SMART", "USD")
+        await self._throttle.acquire()
+        qualified = await self._ib.qualifyContractsAsync(stock)
+        if not qualified:
+            raise BrokerError(f"IBKR 无法识别标的 {underlying}")
+        stock = qualified[0]
+        await self._throttle.acquire()
+        chains = await self._ib.reqSecDefOptParamsAsync(
+            stock.symbol, "", stock.secType, stock.conId)
+        chain = next((c for c in chains if c.exchange == "SMART"), chains[0] if chains else None)
+        if chain is None:
+            raise BrokerError(f"{underlying} 无期权链")
+        self._chain_cache[underlying] = (_t.monotonic(), chain)
+        return chain
+
+    async def get_option_expirations(self, underlying: str) -> list[str]:
+        if self._ib is None:
+            raise BrokerError("ibkr 未连接")
+        chain = await self._opt_params(underlying)
+        return sorted(chain.expirations)
+
+    async def get_option_chain(self, underlying: str, expiry: str,
+                               with_quotes: bool = False,
+                               strikes_around: int | None = None):
+        from app.domain.contracts import OptionContract
+        from app.domain.schemas import OptionChainItem
+
+        if self._ib is None:
+            raise BrokerError("ibkr 未连接")
+        chain = await self._opt_params(underlying)
+        if expiry not in chain.expirations:
+            raise BrokerError(f"{underlying} 无 {expiry} 到期的期权")
+        strikes = sorted(chain.strikes)
+        mult = float(chain.multiplier or 100)
+
+        # 限幅：以正股现价为中心取 N 档行权价（保护 pacing 预算）
+        if strikes_around:
+            center = None
+            quote = await self.get_quote(underlying)
+            if quote is not None:
+                center = quote.price
+            if center is not None and strikes:
+                strikes.sort(key=lambda s: abs(s - center))
+                strikes = sorted(strikes[:strikes_around])
+
+        items: list[OptionChainItem] = []
+        for strike in strikes:
+            for right in ("C", "P"):
+                oc = OptionContract(underlying=underlying, expiry=expiry,
+                                    right=right, strike=strike)
+                items.append(OptionChainItem(symbol=oc.symbol(), strike=strike,
+                                             right=right, multiplier=mult))
+
+        if with_quotes and items:
+            contracts = []
+            for item in items:
+                try:
+                    contracts.append(await self._qualified(item.symbol))
+                except BrokerError:
+                    contracts.append(None)
+            valid = [(i, c) for i, c in zip(items, contracts) if c is not None]
+            for batch_start in range(0, len(valid), 50):
+                batch = valid[batch_start:batch_start + 50]
+                await self._throttle.acquire()
+                tickers = await self._ib.reqTickersAsync(*[c for _, c in batch])
+                for (item, _), tk in zip(batch, tickers):
+                    def _num(v):
+                        return float(v) if v is not None and v == v and v > 0 else None
+                    item.bid = _num(getattr(tk, "bid", None))
+                    item.ask = _num(getattr(tk, "ask", None))
+                    item.last = _num(getattr(tk, "last", None)) or _num(getattr(tk, "close", None))
+        return items
+
+    async def get_contract_multiplier(self, symbol: str) -> float | None:
+        from app.domain.contracts import OptionContract
+
+        oc = OptionContract.parse(symbol)
+        if oc is None or self._ib is None:
+            return None
+        try:
+            chain = await self._opt_params(oc.underlying)
+            return float(chain.multiplier or 100)
+        except Exception:
+            return None
+
     async def get_quote(self, symbol: str) -> Quote | None:
         if self._ib is None:
             return None
         try:
+            contract = await self._qualified(symbol)
             await self._throttle.acquire()
-            ticker = self._ib.reqMktData(self._contract(symbol), snapshot=True)
+            ticker = self._ib.reqMktData(contract, snapshot=True)
             for _ in range(20):  # 最多等 2 秒
                 await asyncio.sleep(0.1)
                 price = ticker.marketPrice()

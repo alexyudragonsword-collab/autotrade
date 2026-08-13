@@ -123,7 +123,8 @@ class PaperBroker(BrokerAdapter):
         db = SessionLocal()
         try:
             rows = db.scalars(select(Position).where(Position.broker == self.name)).all()
-            return [PositionSnapshot(r.symbol, Market(r.market), r.qty, r.avg_cost)
+            return [PositionSnapshot(r.symbol, Market(r.market), r.qty, r.avg_cost,
+                                     multiplier=r.multiplier or 1.0)
                     for r in rows if r.qty != 0]
         finally:
             db.close()
@@ -136,7 +137,7 @@ class PaperBroker(BrokerAdapter):
             net = cash
             for pos in await self.get_positions():
                 price = await self._resolve_price(pos.symbol, hint=pos.avg_cost)
-                net += pos.qty * (price or pos.avg_cost)
+                net += pos.qty * (price or pos.avg_cost) * pos.multiplier
             return AccountSnapshot(cash=cash, net_value=net, buying_power=cash)
         finally:
             db.close()
@@ -155,21 +156,27 @@ class PaperBroker(BrokerAdapter):
                     return float(price)
             except Exception:
                 logger.warning("外部行情源获取 %s 失败", symbol)
-        try:
-            from app.data.store import get_bar_store
+        from app.domain.contracts import is_option
 
-            price = await asyncio.to_thread(get_bar_store().last_close, symbol)
-            if price:
-                return float(price)
-        except Exception:
-            logger.debug("BarStore 无 %s 缓存", symbol)
+        if not is_option(symbol):  # 期权无本地 K 线缓存，直接走 hint
+            try:
+                from app.data.store import get_bar_store
+
+                price = await asyncio.to_thread(get_bar_store().last_close, symbol)
+                if price:
+                    return float(price)
+            except Exception:
+                logger.debug("BarStore 无 %s 缓存", symbol)
         return hint
 
     async def _fill(self, oid: str, req: OrderRequest, price: float) -> None:
+        mult = req.multiplier or 1.0
         fill_qty = req.qty * self.partial_fill_ratio
-        fee = price * fill_qty * self.fee_bps / 10_000
-        self._apply_position(req, fill_qty, price, fee)
+        fee = price * fill_qty * mult * self.fee_bps / 10_000
+        # 先发成交回报再更新持仓：OrderManager._on_fill 需要「成交前」的均价计算已实现盈亏
+        # （_emit_fill 会同步 await 回调，顺序是确定的；也修复了全平后均价被清零导致盈亏丢失的问题）
         await self._emit_fill(FillEvent(oid, fill_qty, price, fee, broker_trade_id=f"T{oid}"))
+        self._apply_position(req, fill_qty, price, fee)
         if fill_qty >= req.qty:
             status = OrderStatus.FILLED
         else:
@@ -179,25 +186,40 @@ class PaperBroker(BrokerAdapter):
         )
 
     def _apply_position(self, req: OrderRequest, qty: float, price: float, fee: float) -> None:
+        from app.domain.contracts import is_option
+
         db = SessionLocal()
         try:
             pos = db.scalar(select(Position).where(Position.broker == self.name,
                                                    Position.symbol == req.symbol))
             if pos is None:
-                pos = Position(broker=self.name, symbol=req.symbol, market=req.market, qty=0.0, avg_cost=0.0)
+                pos = Position(broker=self.name, symbol=req.symbol, market=req.market,
+                               qty=0.0, avg_cost=0.0)
                 db.add(pos)
+            mult = req.multiplier or 1.0
             cash_row = db.get(AppSetting, self._cash_key)
             cash = float(cash_row.value) if cash_row else 0.0
-            if req.side == OrderSide.BUY:
-                new_qty = pos.qty + qty
-                pos.avg_cost = (pos.qty * pos.avg_cost + qty * price) / new_qty if new_qty else 0.0
+
+            signed = qty if req.side == OrderSide.BUY else -qty
+            if not is_option(req.symbol) and signed < 0:
+                # 股票保持不可做空：卖出量截断到现有多头
+                signed = -min(qty, max(pos.qty, 0.0))
+            new_qty = pos.qty + signed
+
+            if signed != 0:
+                if pos.qty == 0 or (pos.qty > 0) == (signed > 0):
+                    # 开仓/加仓（同向）：加权均价
+                    pos.avg_cost = ((abs(pos.qty) * pos.avg_cost + abs(signed) * price)
+                                    / abs(new_qty)) if new_qty else 0.0
+                elif new_qty == 0:
+                    pos.avg_cost = 0.0  # 完全平仓
+                elif (new_qty > 0) != (pos.qty > 0):
+                    pos.avg_cost = price  # 穿零翻向：新仓成本 = 本次成交价
+                # 纯减仓保持均价不变
                 pos.qty = new_qty
-                cash -= price * qty + fee
-            else:
-                pos.qty = max(0.0, pos.qty - qty)
-                if pos.qty == 0:
-                    pos.avg_cost = 0.0
-                cash += price * qty - fee
+                pos.multiplier = mult
+                # 买入付钱、卖出收钱（期权卖开即收权利金×乘数）
+                cash += (-signed) * price * mult - fee
             if cash_row:
                 cash_row.value = cash
             db.commit()

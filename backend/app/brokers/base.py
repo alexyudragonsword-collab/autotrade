@@ -9,6 +9,7 @@ from app.domain.schemas import (
     AccountSnapshot,
     BrokerOrderRef,
     FillEvent,
+    OptionChainItem,
     OrderRequest,
     OrderUpdate,
     PositionSnapshot,
@@ -58,6 +59,21 @@ class BrokerAdapter(ABC):
 
     # ---------- 行情（可选能力）----------
     async def get_quote(self, symbol: str) -> Quote | None:
+        return None
+
+    # ---------- 期权（可选能力）----------
+    async def get_option_expirations(self, underlying: str) -> list[str]:
+        """标的可交易期权的到期日列表（YYYYMMDD 升序）。"""
+        raise BrokerError(f"{self.name} 不支持期权")
+
+    async def get_option_chain(self, underlying: str, expiry: str,
+                               with_quotes: bool = False,
+                               strikes_around: int | None = None) -> list[OptionChainItem]:
+        """某到期日的期权链；with_quotes 时附带报价（可能受限流约束）。"""
+        raise BrokerError(f"{self.name} 不支持期权")
+
+    async def get_contract_multiplier(self, symbol: str) -> float | None:
+        """期权合约乘数；未知返回 None（调用方用市场默认值兜底）。"""
         return None
 
     # ---------- 事件回调 ----------

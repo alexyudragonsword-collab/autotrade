@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     paper_enabled: bool = True
     paper_initial_cash: float = 1_000_000.0
 
+    # 港股期权合约乘数兜底值（券商未报告合约规模时使用；US 期权固定 100）
+    hk_option_multiplier_default: float = 100.0
+
     futu_enabled: bool = False
     futu_opend_host: str = "127.0.0.1"
     futu_opend_port: int = 11111

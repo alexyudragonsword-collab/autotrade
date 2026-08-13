@@ -67,6 +67,15 @@ async def _position_guard():
         logger.exception("持仓守护执行失败")
 
 
+async def _expiry_guard():
+    from app.risk.guard import run_expiry_guard
+
+    try:
+        await run_expiry_guard()
+    except Exception:
+        logger.exception("期权到期守护执行失败")
+
+
 async def _run_screener_job(screener_id: int):
     import asyncio
 
@@ -177,6 +186,7 @@ def start_scheduler() -> None:
     scheduler.add_job(_sync_positions, "interval", seconds=60, id="position_sync")
     scheduler.add_job(_check_paper_limits, "interval", seconds=20, id="paper_limits")
     scheduler.add_job(_position_guard, "interval", seconds=60, id="position_guard")
+    scheduler.add_job(_expiry_guard, "interval", hours=4, id="expiry_guard")
     scheduler.add_job(_backup_db, CronTrigger.from_crontab("30 20 * * *", timezone="UTC"),
                       id="db_backup")
     scheduler.add_job(_account_snapshots, "interval", hours=4, id="account_snapshots")

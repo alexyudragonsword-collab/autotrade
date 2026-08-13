@@ -35,6 +35,7 @@ class OrderRequest:
     qty: float
     limit_price: float | None = None
     hint_price: float | None = None  # 信号参考价；paper 无实时行情时的撮合兜底价，真实券商忽略
+    multiplier: float = 1.0  # 合约乘数（期权），股票为 1
 
 
 @dataclass
@@ -64,8 +65,9 @@ class FillEvent:
 class PositionSnapshot:
     symbol: str
     market: Market
-    qty: float
-    avg_cost: float
+    qty: float  # 负数 = 空头（期权卖方）
+    avg_cost: float  # 每股/每单位口径（不含乘数）
+    multiplier: float = 1.0
 
 
 @dataclass
@@ -82,6 +84,20 @@ class Quote:
     ts: datetime | None = None
 
 
+@dataclass
+class OptionChainItem:
+    """期权链条目（适配器返回，API 层按行权价分组）。"""
+
+    symbol: str  # 内部规范期权符号
+    strike: float
+    right: str  # "C" | "P"
+    multiplier: float
+    bid: float | None = None
+    ask: float | None = None
+    last: float | None = None
+    open_interest: float | None = None
+
+
 # ---------- 风控 ----------
 
 
@@ -95,10 +111,11 @@ class OrderIntent:
     est_price: float | None  # 估算价（限价单用 limit，市价单用最新行情/信号价）
     broker: str
     strategy: str | None = None
+    multiplier: float = 1.0
 
     @property
     def est_value(self) -> float:
-        return abs(self.qty * (self.est_price or 0.0))
+        return abs(self.qty * (self.est_price or 0.0) * self.multiplier)
 
 
 @dataclass

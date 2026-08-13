@@ -7,6 +7,7 @@
         <el-menu-item index="/dashboard">📊 仪表盘</el-menu-item>
         <el-menu-item index="/signals">📡 信号日志</el-menu-item>
         <el-menu-item index="/orders">📋 订单持仓</el-menu-item>
+        <el-menu-item index="/options">🎯 期权链</el-menu-item>
         <el-menu-item index="/strategies">🧠 策略管理</el-menu-item>
         <el-menu-item index="/editor">✏️ 策略编辑器</el-menu-item>
         <el-menu-item index="/screener">🔍 选股器</el-menu-item>
