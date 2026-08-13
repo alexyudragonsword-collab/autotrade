@@ -261,6 +261,72 @@ async def broker_account(name: str):
         raise HTTPException(400, str(e))
 
 
+# ---------- 自选 watchlist ----------
+
+
+class WatchlistBody(BaseModel):
+    symbols: list[str]
+
+
+def _get_watchlist(db: Session) -> list[str]:
+    from app.db.models import AppSetting
+
+    row = db.get(AppSetting, "watchlist")
+    return list(row.value or []) if row else []
+
+
+@router.get("/watchlist")
+async def get_watchlist(db: Session = Depends(get_db)):
+    import asyncio as aio
+
+    from app.data.store import get_bar_store
+
+    symbols = _get_watchlist(db)
+    store = get_bar_store()
+    out = []
+    for sym in symbols:
+        price = await aio.to_thread(store.last_close, sym)
+        out.append({"symbol": sym, "last_close": price})
+    return out
+
+
+@router.put("/watchlist")
+def set_watchlist(body: WatchlistBody, db: Session = Depends(get_db)):
+    from app.db.models import AppSetting
+
+    row = db.get(AppSetting, "watchlist")
+    if row is None:
+        row = AppSetting(key="watchlist", value=[])
+        db.add(row)
+    row.value = list(dict.fromkeys(body.symbols))[:200]
+    db.commit()
+    return {"watchlist": row.value}
+
+
+@router.delete("/watchlist/{symbol}")
+def remove_from_watchlist(symbol: str, db: Session = Depends(get_db)):
+    from app.db.models import AppSetting
+
+    row = db.get(AppSetting, "watchlist")
+    if row is not None:
+        row.value = [s for s in (row.value or []) if s != symbol]
+        db.commit()
+    return {"watchlist": row.value if row else []}
+
+
+# ---------- 审计日志 ----------
+
+
+@router.get("/audit-logs")
+def list_audit_logs(page: int = 1, size: int = 20, db: Session = Depends(get_db)):
+    from app.db.models import AuditLog
+
+    stmt = select(AuditLog).order_by(AuditLog.id.desc())
+    result = _paginate(db, stmt, page, size)
+    result["items"] = [_row(a) for a in result["items"]]
+    return result
+
+
 # ---------- 设置 ----------
 
 

@@ -69,6 +69,8 @@ class TradeFill(Base):
     qty: Mapped[float] = mapped_column(Float)
     price: Mapped[float] = mapped_column(Float)
     fee: Mapped[float] = mapped_column(Float, default=0.0)
+    # 卖出成交时按当时持仓均价计算并落库（买入为 NULL）；风控日亏损直接累加该列
+    realized_pnl: Mapped[float | None] = mapped_column(Float, nullable=True)
     ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -93,6 +95,9 @@ class StrategyConfig(Base):
     mode: Mapped[str] = mapped_column(String(16), default="signal_only")
     broker: Mapped[str] = mapped_column(String(16), default="paper")
     default_qty: Mapped[float] = mapped_column(Float, default=0.0)  # 信号未带 qty 时的默认数量
+    # 本地策略实盘驱动：监控标的与运行时间（cron，北京时间）；仅 class_name 非空时生效
+    symbols: Mapped[list] = mapped_column(JSON, default=list)
+    schedule_cron: Mapped[str | None] = mapped_column(String(64), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
@@ -131,6 +136,7 @@ class BacktestRun(Base):
     initial_cash: Mapped[float] = mapped_column(Float, default=100000.0)
     commission_bps: Mapped[float] = mapped_column(Float, default=3.0)
     slippage_bps: Mapped[float] = mapped_column(Float, default=1.0)
+    group_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)  # 参数扫描分组
     status: Mapped[str] = mapped_column(String(10), default="queued", index=True)
     progress: Mapped[float] = mapped_column(Float, default=0.0)
     metrics: Mapped[dict | None] = mapped_column(JSON, nullable=True)
@@ -163,6 +169,20 @@ class RiskEventLog(Base):
     order_intent: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     decision: Mapped[str] = mapped_column(String(8))  # allow | block
     reason: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
+class AuditLog(Base):
+    """管理后台写操作审计（POST/PUT/DELETE）。"""
+
+    __tablename__ = "audit_logs"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    username: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    method: Mapped[str] = mapped_column(String(8))
+    path: Mapped[str] = mapped_column(String(200))
+    body: Mapped[str | None] = mapped_column(Text, nullable=True)  # 截断后的请求体摘要
+    status_code: Mapped[int] = mapped_column(Integer, default=0)
+    ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
     ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
 
 

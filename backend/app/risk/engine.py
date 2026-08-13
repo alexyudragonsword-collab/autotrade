@@ -60,17 +60,14 @@ class RiskEngine:
             select(func.count(Order.id)).where(Order.broker == intent.broker,
                                                Order.created_at >= day_start)) or 0
 
-        # 当日已实现盈亏：当日卖出成交额 - 对应买入成本近似（用 avg_cost 计算）
-        realized = 0.0
-        sells = db.execute(
-            select(TradeFill, Order).join(Order, TradeFill.order_id == Order.id)
-            .where(Order.broker == intent.broker, Order.side == "sell", TradeFill.ts >= day_start)
-        ).all()
-        for fill, order in sells:
-            p = db.scalar(select(Position).where(Position.broker == intent.broker,
-                                                 Position.symbol == order.symbol))
-            cost_basis = p.avg_cost if p and p.avg_cost else fill.price
-            realized += (fill.price - cost_basis) * fill.qty - fill.fee
+        # 当日已实现盈亏：成交时逐笔落库的 realized_pnl 直接累加（见 OrderManager._on_fill）
+        realized = db.scalar(
+            select(func.coalesce(func.sum(TradeFill.realized_pnl), 0.0))
+            .join(Order, TradeFill.order_id == Order.id)
+            .where(Order.broker == intent.broker,
+                   TradeFill.realized_pnl.is_not(None),
+                   TradeFill.ts >= day_start)
+        ) or 0.0
 
         return RiskContext(
             config=config,

@@ -40,6 +40,19 @@
             </span>
           </div>
         </el-card>
+        <el-card style="margin-top: 16px">
+          <template #header>自选关注（{{ watchlist.length }}）</template>
+          <el-table :data="watchlist" size="small" max-height="220" v-if="watchlist.length">
+            <el-table-column prop="symbol" label="代码" />
+            <el-table-column prop="last_close" label="最近收盘"><template #default="{ row }">{{ fmt(row.last_close) }}</template></el-table-column>
+            <el-table-column label="" width="60">
+              <template #default="{ row }">
+                <el-button link type="danger" size="small" @click="removeWatch(row.symbol)">移除</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+          <el-empty v-else description="选股器结果可一键加自选" :image-size="48" />
+        </el-card>
       </el-col>
       <el-col :span="16">
         <el-card header="最近信号">
@@ -89,10 +102,18 @@ const tradingEnabled = ref(true)
 const loading = ref(true)
 let timer
 
+const watchlist = ref([])
+
 async function load() {
   summary.value = await client.get('/api/dashboard/summary')
   tradingEnabled.value = summary.value.trading_enabled
   loading.value = false
+  watchlist.value = await client.get('/api/watchlist')
+}
+
+async function removeWatch(symbol) {
+  await client.delete(`/api/watchlist/${symbol}`)
+  watchlist.value = watchlist.value.filter((w) => w.symbol !== symbol)
 }
 
 async function toggleKillSwitch(value) {

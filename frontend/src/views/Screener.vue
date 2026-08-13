@@ -27,7 +27,11 @@
                 {{ ts(r.run_at) }} — 选出 <b>{{ r.count }}</b> 只
                 <el-tag v-if="r.error_msg" type="danger" size="small">{{ r.error_msg }}</el-tag>
               </span>
-              <el-button link type="primary" size="small" @click="notify(r)">推送到通知渠道</el-button>
+              <span>
+                <el-button link type="primary" size="small" :disabled="!r.count" @click="openBacktest(r)">回测</el-button>
+                <el-button link type="primary" size="small" :disabled="!r.count" @click="toWatchlist(r)">加自选</el-button>
+                <el-button link type="primary" size="small" @click="notify(r)">推送</el-button>
+              </span>
             </div>
             <el-table :data="r.symbols" size="small" max-height="300">
               <el-table-column v-for="col in cols(r)" :key="col" :prop="col" :label="colName(col)" />
@@ -38,6 +42,26 @@
       </el-card>
     </el-col>
   </el-row>
+
+  <el-dialog v-model="btDialog" title="用选股结果发起回测" width="480px">
+    <el-form :model="btForm" label-width="90px">
+      <el-form-item label="策略">
+        <el-select v-model="btForm.strategy_class">
+          <el-option v-for="b in builtin" :key="b.class_name" :label="b.class_name" :value="b.class_name" />
+        </el-select>
+      </el-form-item>
+      <el-form-item label="日期区间">
+        <el-date-picker v-model="btRange" type="daterange" value-format="YYYY-MM-DD" style="width: 100%" />
+      </el-form-item>
+      <el-form-item label="取前 N 只">
+        <el-input-number v-model="btForm.top_n" :min="1" :max="50" />
+      </el-form-item>
+    </el-form>
+    <template #footer>
+      <el-button @click="btDialog = false">取消</el-button>
+      <el-button type="primary" @click="submitBacktest">发起回测</el-button>
+    </template>
+  </el-dialog>
 
   <el-dialog v-model="dialog" :title="form.id ? '编辑选股器' : '新建选股器'" width="680px">
     <el-form :model="form" label-width="100px">
@@ -98,8 +122,37 @@
 <script setup>
 import { onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useRouter } from 'vue-router'
 import client from '../api/client'
 import { ts } from '../utils'
+
+const router = useRouter()
+const builtin = ref([])
+const btDialog = ref(false)
+const btForm = ref({ strategy_class: 'SmaCross', top_n: 20 })
+const btRange = ref(['2023-01-01', new Date().toISOString().slice(0, 10)])
+let btResult = null
+
+function openBacktest(r) {
+  btResult = r
+  btDialog.value = true
+}
+
+async function submitBacktest() {
+  await client.post(`/api/screeners/${current.value.id}/results/${btResult.id}/backtest`, {
+    ...btForm.value,
+    start_date: btRange.value[0],
+    end_date: btRange.value[1],
+  })
+  btDialog.value = false
+  ElMessage.success('回测已提交，跳转到回测中心查看')
+  router.push('/backtest')
+}
+
+async function toWatchlist(r) {
+  const data = await client.post(`/api/screeners/${current.value.id}/results/${r.id}/to-watchlist`)
+  ElMessage.success(`已加入自选（当前共 ${data.watchlist.length} 只）`)
+}
 
 const items = ref([])
 const results = ref([])
@@ -187,5 +240,8 @@ async function notify(r) {
   ElMessage.success('已推送')
 }
 
-onMounted(load)
+onMounted(async () => {
+  load()
+  builtin.value = await client.get('/api/strategies/builtin')
+})
 </script>

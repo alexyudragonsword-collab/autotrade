@@ -42,9 +42,24 @@ risk_events / notify_channels / app_settings / users。
 - 面板：单用户 JWT + bcrypt + 登录限速（5 次/分钟）
 - 所有密钥走 `.env`（gitignore），数据库不存敏感信息
 
+## 本地策略实盘驱动（迭代2）
+
+`strategy/live.py`：`LiveContext` 用 BarStore 行情 + 本地持仓镜像实现 `StrategyContext`，
+调度器按策略配置的 cron（北京时间）驱动 `on_bar`；buy/sell 动作转成
+`NormalizedSignal(source="strategy")` 走与 TV 告警完全相同的管道。
+去重键含最后一根 K 线日期——同一根日线重复运行（手动补跑/调度重叠）天然幂等。
+
+## 运维（迭代2）
+
+- **Alembic**：`backend/alembic/`，0001 基线按 ORM 元数据建表，后续迁移带存在性检查幂等；
+  `init_db()` 启动时自动升级，迁移机制引入前的旧库自动 stamp 后升级
+- **审计**：`audit.py` 中间件记录 /api 写操作（登录除外，敏感字段脱敏）
+- **备份**：调度器每日 UTC 20:30 备份 SQLite 至 `data/backups/`，保留 7 份
+- **CI**：GitHub Actions 跑后端 pytest + 前端构建
+
 ## 已知取舍
 
-- 日亏损计算用持仓均价近似成本基础（够风控用，非会计级）
-- IBKR 佣金未回填到成交明细（commissionReport 事件 v2 再接）
-- 美股基本面选股暂缺（yfinance 逐票太慢），A股基本面走 akshare 快照
-- 本地策略实盘驱动（LiveContext 定时跑 on_bar）为后续增强；v1 实盘信号以 TV 告警为主
+- 日亏损基于成交时逐笔落库的 realized_pnl（持仓均价口径），IBKR 会再用 commissionReport
+  的 realizedPNL 校正；非会计级但足够风控使用
+- 美股基本面走 yfinance Ticker.info 并发拉取 + 当日缓存，universe 大时较慢（建议 ≤50 只）
+- 参数扫描上限 60 组合，防止误提交笛卡尔爆炸

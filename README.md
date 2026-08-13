@@ -10,7 +10,9 @@
 | 🛡️ 风控引擎 | Kill switch、标的白名单、单笔/单标的/总敞口限额、日亏损上限、日订单数、交易时段校验；fail-closed（风控异常一律拒单） |
 | 🏦 多券商 | 可插拔适配层：**Paper 模拟**（内置）、**富途 OpenAPI**（A股/港股/美股）、**盈透 IBKR**（美股）；券商离线自动降级拒单不崩溃 |
 | 🔍 定制选股 | 基本面（PE/PB/市值…）+ 技术面表达式（`close > SMA(close,20) and RSI(close,14) < 30`），支持定时运行并推送结果 |
-| 📈 策略回测 | 自研 bar 级事件驱动引擎（下一根 K 线开盘撮合，无未来函数），收益/年化/夏普/回撤/胜率 + 权益曲线图 |
+| 📈 策略回测 | 自研 bar 级事件驱动引擎（下一根 K 线开盘撮合，无未来函数），收益/年化/夏普/回撤/胜率 + 权益曲线图；**参数网格扫描寻优**（多组参数并行回测按夏普对比） |
+| 🤖 本地策略实盘 | 内置策略不依赖 TradingView：按 cron 定时（或手动）在本地行情上跑 `on_bar`，信号进入与 TV 告警相同的风控/下单管道，与回测共用同一份策略代码 |
+| 🔗 选股联动 | 选股结果一键：组合回测 / 加入自选（仪表盘展示）/ 推送通知 |
 | 🔔 多渠道提醒 | Telegram / 邮件 SMTP / 企业微信 / 钉钉，按事件级别过滤 |
 | 🖥️ Web 后台 | 仪表盘、信号日志、订单持仓、策略管理、选股器、回测中心、风控设置、通知设置 |
 
@@ -86,8 +88,14 @@ curl -X POST "http://localhost:8000/webhook/tradingview/<TOKEN>" \
 ## 测试
 
 ```bash
-pytest -q          # 49 个单测 + 端到端测试
+pytest -q          # 55 个单测 + 端到端测试（GitHub Actions 自动运行）
 ```
+
+## 运维
+
+- **迁移**：schema 由 Alembic 管理，启动时自动 `upgrade head`；切 Postgres 装 `pip install -e '.[postgres]'` 并改 `DATABASE_URL`
+- **备份**：SQLite 每日自动备份到 `data/backups/`（保留 7 份）；Postgres 请用 pg_dump
+- **审计**：管理后台全部写操作记录在 `audit_logs`（`GET /api/audit-logs`），密码/密钥字段自动脱敏
 
 ## 文档
 

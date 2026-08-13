@@ -122,8 +122,19 @@ class OrderManager:
             if order is None:
                 logger.warning("收到未知成交回报: %s", fill.broker_order_id)
                 return
+            # 卖出成交按当时持仓均价落已实现盈亏（风控日亏损据此精确累加）
+            realized = None
+            if order.side == "sell":
+                from app.db.models import Position
+
+                pos = db.scalar(select(Position).where(Position.broker == order.broker,
+                                                       Position.symbol == order.symbol))
+                cost_basis = pos.avg_cost if pos and pos.avg_cost else None
+                if cost_basis is not None:
+                    realized = (fill.price - cost_basis) * fill.qty - fill.fee
             db.add(TradeFill(order_id=order.id, broker_trade_id=fill.broker_trade_id,
-                             qty=fill.qty, price=fill.price, fee=fill.fee))
+                             qty=fill.qty, price=fill.price, fee=fill.fee,
+                             realized_pnl=realized))
             db.commit()
         finally:
             db.close()

@@ -22,6 +22,11 @@ def clean_db():
     init_db()
     yield
     Base.metadata.drop_all(bind=engine)
+    # alembic_version 不在 ORM 元数据里，需一并清掉，否则下个测试 init_db 会跳过建表
+    from sqlalchemy import text
+
+    with engine.begin() as conn:
+        conn.execute(text("DROP TABLE IF EXISTS alembic_version"))
 
 
 @pytest.fixture

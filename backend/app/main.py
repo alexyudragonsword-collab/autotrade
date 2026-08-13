@@ -45,7 +45,10 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="AutoTrade", version="0.1.0", lifespan=lifespan)
+    from app.audit import AuditMiddleware
+
+    app = FastAPI(title="AutoTrade", version="0.2.0", lifespan=lifespan)
+    app.add_middleware(AuditMiddleware)
 
     @app.get("/api/health")
     def health():

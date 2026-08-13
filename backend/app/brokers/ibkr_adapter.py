@@ -80,6 +80,7 @@ class IbkrAdapter(BrokerAdapter):
         self._ib = ib
         ib.orderStatusEvent += self._on_ib_order_status
         ib.execDetailsEvent += self._on_ib_exec
+        ib.commissionReportEvent += self._on_ib_commission
         ib.disconnectedEvent += lambda: logger.warning("IBKR 连接断开，等待健康检查自动重连")
         logger.info("IBKR 已连接（%s:%s clientId=%s）", s.ibkr_host, s.ibkr_port, s.ibkr_client_id)
 
@@ -113,10 +114,42 @@ class IbkrAdapter(BrokerAdapter):
             broker_order_id=str(trade.order.orderId),
             qty=float(fill.execution.shares),
             price=float(fill.execution.price),
-            fee=0.0,  # 佣金随后到 commissionReport，v1 简化不回填
+            fee=0.0,  # 佣金稍后由 commissionReport 回填
             broker_trade_id=str(fill.execution.execId),
         )
         asyncio.ensure_future(self._emit_fill(event))
+
+    def _on_ib_commission(self, trade, fill, report) -> None:
+        """commissionReport 晚于成交回报到达 → 回填 TradeFill 的佣金与已实现盈亏。"""
+        asyncio.ensure_future(asyncio.to_thread(
+            self._update_fill_commission,
+            str(fill.execution.execId),
+            float(report.commission or 0),
+            float(report.realizedPNL) if getattr(report, "realizedPNL", None) not in (None, 0) else None,
+        ))
+
+    @staticmethod
+    def _update_fill_commission(exec_id: str, commission: float, realized_pnl: float | None) -> None:
+        from sqlalchemy import select
+
+        from app.db.base import SessionLocal
+        from app.db.models import TradeFill
+
+        db = SessionLocal()
+        try:
+            fill_row = db.scalar(select(TradeFill).where(TradeFill.broker_trade_id == exec_id)
+                                 .order_by(TradeFill.id.desc()))
+            if fill_row is None:
+                return
+            fill_row.fee = commission
+            # IB 的 realizedPNL 为魔数 1.7976931348623157e+308 时表示无效
+            if realized_pnl is not None and abs(realized_pnl) < 1e300:
+                fill_row.realized_pnl = realized_pnl
+            db.commit()
+        except Exception:
+            logger.exception("回填 IBKR 佣金失败: %s", exec_id)
+        finally:
+            db.close()
 
     # ---------- 交易 ----------
 

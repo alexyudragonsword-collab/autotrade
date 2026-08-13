@@ -23,8 +23,10 @@
           <el-switch :model-value="row.enabled" @change="toggle(row)" />
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="140">
+      <el-table-column label="操作" width="200">
         <template #default="{ row }">
+          <el-button v-if="row.class_name" link type="success" :loading="runningId === row.id"
+                     @click="runNow(row)">运行</el-button>
           <el-button link type="primary" @click="openForm(row)">编辑</el-button>
           <el-button link type="danger" @click="remove(row)">删除</el-button>
         </template>
@@ -61,6 +63,15 @@
         <el-form-item label="参数(JSON)">
           <el-input v-model="paramsText" type="textarea" :rows="3" />
         </el-form-item>
+        <template v-if="form.class_name">
+          <el-form-item label="监控标的">
+            <el-select v-model="form.symbols" multiple filterable allow-create default-first-option
+                       placeholder="本地策略驱动的标的，如 US.AAPL / SH.600519" style="width: 100%" />
+          </el-form-item>
+          <el-form-item label="运行时间(cron)">
+            <el-input v-model="form.schedule_cron" placeholder="如 10 16 * * 1-5（北京时间；留空只手动运行）" />
+          </el-form-item>
+        </template>
         <el-form-item label="备注">
           <el-input v-model="form.notes" />
         </el-form-item>
@@ -84,6 +95,18 @@ const loading = ref(false)
 const dialog = ref(false)
 const form = ref({})
 const paramsText = ref('{}')
+const runningId = ref(null)
+
+async function runNow(row) {
+  runningId.value = row.id
+  try {
+    const summary = await client.post(`/api/strategies/${row.id}/run-now`)
+    const errs = summary.errors?.length ? `；异常: ${summary.errors.join(' / ')}` : ''
+    ElMessage.success(`运行完成：${summary.symbols} 个标的，产生 ${summary.signals} 个信号${errs}`)
+  } finally {
+    runningId.value = null
+  }
+}
 
 async function load() {
   loading.value = true
@@ -96,8 +119,8 @@ async function load() {
 
 function openForm(row) {
   form.value = row
-    ? { ...row }
-    : { name: '', class_name: null, mode: 'signal_only', broker: 'paper', default_qty: 0, params: {}, enabled: true, notes: '' }
+    ? { ...row, symbols: row.symbols || [] }
+    : { name: '', class_name: null, mode: 'signal_only', broker: 'paper', default_qty: 0, params: {}, enabled: true, notes: '', symbols: [], schedule_cron: '' }
   paramsText.value = JSON.stringify(form.value.params || {}, null, 0)
   dialog.value = true
 }
@@ -110,7 +133,7 @@ async function save() {
     ElMessage.error('参数不是合法 JSON')
     return
   }
-  const body = { ...form.value, params }
+  const body = { ...form.value, params, schedule_cron: form.value.schedule_cron || null }
   if (form.value.id) await client.put(`/api/strategies/${form.value.id}`, body)
   else await client.post('/api/strategies', body)
   dialog.value = false

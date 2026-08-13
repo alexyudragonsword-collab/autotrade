@@ -11,6 +11,7 @@
           </el-form-item>
           <el-form-item label="参数(JSON)">
             <el-input v-model="paramsText" type="textarea" :rows="2" />
+            <el-checkbox v-model="scanMode" style="margin-top: 4px">参数扫描（值写成数组，如 {"fast":[5,10,20],"slow":[30,60]}）</el-checkbox>
           </el-form-item>
           <el-form-item label="市场">
             <el-select v-model="form.market">
@@ -49,6 +50,17 @@
     </el-col>
 
     <el-col :span="17">
+      <el-card v-if="scanGroup" :header="`参数扫描对比 — 已完成 ${scanGroup.finished}/${scanGroup.total}（按夏普降序）`" style="margin-bottom: 16px">
+        <el-table :data="scanGroup.items" size="small" max-height="380" highlight-current-row
+                  @current-change="(row) => row && showRun(row)">
+          <el-table-column prop="id" label="#" width="60" />
+          <el-table-column label="参数"><template #default="{ row }">{{ JSON.stringify(row.params) }}</template></el-table-column>
+          <el-table-column label="夏普" width="80"><template #default="{ row }">{{ row.metrics?.sharpe ?? '…' }}</template></el-table-column>
+          <el-table-column label="年化" width="90"><template #default="{ row }">{{ row.metrics ? pct(row.metrics.annual_return) : '…' }}</template></el-table-column>
+          <el-table-column label="回撤" width="90"><template #default="{ row }">{{ row.metrics ? pct(row.metrics.max_drawdown) : '…' }}</template></el-table-column>
+          <el-table-column label="胜率" width="80"><template #default="{ row }">{{ row.metrics ? pct(row.metrics.win_rate) : '…' }}</template></el-table-column>
+        </el-table>
+      </el-card>
       <el-card v-if="detail" :header="`回测 #${detail.id} — ${detail.strategy_class} ${JSON.stringify(detail.params)}`">
         <el-alert v-if="detail.error_msg" type="error" :title="detail.error_msg" :closable="false" style="margin-bottom: 12px" />
         <template v-if="detail.metrics">
@@ -82,7 +94,7 @@
         </template>
         <el-empty v-else-if="detail.status !== 'failed'" description="回测运行中…" />
       </el-card>
-      <el-empty v-else description="发起回测或从左侧选择历史记录" />
+      <el-empty v-else-if="!scanGroup" description="发起回测或从左侧选择历史记录" />
     </el-col>
   </el-row>
 </template>
@@ -103,8 +115,11 @@ const paramsText = ref('{}')
 const symbolsText = ref('AAPL')
 const dateRange = ref(['2023-01-01', '2026-01-01'])
 const form = ref({ strategy_class: 'SmaCross', market: 'US', initial_cash: 100000 })
+const scanMode = ref(false)
+const scanGroup = ref(null)
 let chart = null
 let timer = null
+let scanTimer = null
 
 const currentDoc = computed(() =>
   builtin.value.find((b) => b.class_name === form.value.strategy_class)?.doc || '')
@@ -138,19 +153,34 @@ async function submit() {
   }
   submitting.value = true
   try {
-    const run = await client.post('/api/backtests', {
-      ...form.value,
-      params,
+    const common = {
       symbols: symbolsText.value.split(/[,，\s]+/).filter(Boolean),
       start_date: dateRange.value[0],
       end_date: dateRange.value[1],
-    })
-    ElMessage.success('回测已提交')
+    }
+    if (scanMode.value) {
+      const data = await client.post('/api/backtests/scan', { ...form.value, param_grid: params, ...common })
+      ElMessage.success(`参数扫描已提交（${data.count} 组）`)
+      pollScan(data.group_id)
+    } else {
+      const run = await client.post('/api/backtests', { ...form.value, params, ...common })
+      ElMessage.success('回测已提交')
+      pollRun(run.id)
+    }
     await loadRuns()
-    pollRun(run.id)
   } finally {
     submitting.value = false
   }
+}
+
+function pollScan(groupId) {
+  clearInterval(scanTimer)
+  const tick = async () => {
+    scanGroup.value = await client.get(`/api/backtests/groups/${groupId}`)
+    if (scanGroup.value.finished >= scanGroup.value.total) clearInterval(scanTimer)
+  }
+  tick()
+  scanTimer = setInterval(tick, 2000)
 }
 
 async function loadRuns() {
@@ -219,6 +249,7 @@ onMounted(async () => {
 })
 onUnmounted(() => {
   clearInterval(timer)
+  clearInterval(scanTimer)
   chart?.dispose()
 })
 </script>
