@@ -3,13 +3,24 @@
 from app.strategy.base import Strategy
 from app.strategy.builtin.rsi_reversion import RsiReversion
 from app.strategy.builtin.sma_cross import SmaCross
+from app.strategy.options import CoveredCall, OptionStrategy, WheelStrategy
 from app.strategy.portfolio import MomentumRotation, PortfolioStrategy
 
 _REGISTRY: dict[str, type] = {
     "SmaCross": SmaCross,
     "RsiReversion": RsiReversion,
     "MomentumRotation": MomentumRotation,
+    "CoveredCall": CoveredCall,
+    "WheelStrategy": WheelStrategy,
 }
+
+
+def _kind(cls: type) -> str:
+    if issubclass(cls, OptionStrategy):
+        return "option"
+    if issubclass(cls, PortfolioStrategy):
+        return "portfolio"
+    return "single"
 
 
 def get_strategy_class(name: str) -> type:
@@ -34,7 +45,7 @@ def list_strategies() -> list[dict]:
             "class_name": name,
             "params": cls.params,
             "doc": (cls.__doc__ or "").strip().split("\n")[0],
-            "kind": "portfolio" if issubclass(cls, PortfolioStrategy) else "single",
+            "kind": _kind(cls),
             "custom": False,
         }
         for name, cls in _REGISTRY.items()

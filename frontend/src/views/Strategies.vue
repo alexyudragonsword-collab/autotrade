@@ -40,7 +40,9 @@
         </el-form-item>
         <el-form-item label="本地策略类">
           <el-select v-model="form.class_name" clearable placeholder="留空 = 仅接收 TV 信号">
-            <el-option v-for="b in builtin" :key="b.class_name" :label="`${b.class_name} - ${b.doc}`" :value="b.class_name" />
+            <el-option v-for="b in builtin" :key="b.class_name"
+                       :label="`${b.class_name}【${{ single: '单标的', portfolio: '组合', option: '期权' }[b.kind] || b.kind}】${b.doc}`"
+                       :value="b.class_name" />
           </el-select>
         </el-form-item>
         <el-form-item label="模式">
@@ -65,6 +67,9 @@
           <el-form-item label="监控标的">
             <el-select v-model="form.symbols" multiple filterable allow-create default-first-option
                        placeholder="本地策略驱动的标的，如 US.AAPL / SH.600519" style="width: 100%" />
+            <span v-if="currentKind === 'option'" style="color: #e6a23c; font-size: 12px">
+              期权策略填正股符号（如 US.AAPL），合约由策略按虚值/到期规则自动选择；需先在风控设置启用期权交易
+            </span>
           </el-form-item>
           <el-form-item label="K线周期">
             <el-select v-model="form.timeframe" style="width: 160px">
@@ -91,7 +96,7 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import client from '../api/client'
 
@@ -102,6 +107,8 @@ const dialog = ref(false)
 const form = ref({})
 const paramsText = ref('{}')
 const runningId = ref(null)
+const currentKind = computed(() =>
+  builtin.value.find((b) => b.class_name === form.value.class_name)?.kind)
 
 async function runNow(row) {
   runningId.value = row.id

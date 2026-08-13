@@ -407,12 +407,15 @@ class BacktestBody(BaseModel):
 
 @router.post("/backtests")
 def create_backtest(body: BacktestBody, db: Session = Depends(get_db)):
+    from app.strategy.options import OptionStrategy
     from app.strategy.registry import get_strategy_class
 
     try:
-        get_strategy_class(body.strategy_class)
+        cls = get_strategy_class(body.strategy_class)
     except ValueError as e:
         raise HTTPException(400, str(e))
+    if issubclass(cls, OptionStrategy):
+        raise HTTPException(400, "期权策略不支持回测（无历史期权数据源），请用模拟账户实盘验证")
     if not body.symbols:
         raise HTTPException(400, "至少选择一个标的")
     run = BacktestRun(**body.model_dump())
@@ -450,12 +453,15 @@ def create_backtest_scan(body: BacktestScanBody, db: Session = Depends(get_db)):
     """参数网格扫描：每组参数一个回测，同一 group_id，前端可对比寻优。"""
     import uuid
 
+    from app.strategy.options import OptionStrategy
     from app.strategy.registry import get_strategy_class
 
     try:
-        get_strategy_class(body.strategy_class)
+        cls = get_strategy_class(body.strategy_class)
     except ValueError as e:
         raise HTTPException(400, str(e))
+    if issubclass(cls, OptionStrategy):
+        raise HTTPException(400, "期权策略不支持回测（无历史期权数据源）")
     if not body.symbols:
         raise HTTPException(400, "至少选择一个标的")
     combos = expand_param_grid(body.param_grid or {})

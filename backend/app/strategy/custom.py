@@ -19,6 +19,7 @@ from app.db.base import SessionLocal
 from app.db.models import CustomStrategy
 from app.screener import indicators as _indicators
 from app.strategy.base import Strategy, StrategyContext
+from app.strategy.options import OptionStrategy, OptionStrategyContext
 from app.strategy.portfolio import PortfolioContext, PortfolioStrategy
 
 logger = logging.getLogger(__name__)
@@ -33,6 +34,7 @@ def _exec_namespace() -> dict:
         "pd": pd, "np": np,
         "Strategy": Strategy, "StrategyContext": StrategyContext,
         "PortfolioStrategy": PortfolioStrategy, "PortfolioContext": PortfolioContext,
+        "OptionStrategy": OptionStrategy, "OptionStrategyContext": OptionStrategyContext,
     }
     for name, fn in _indicators.INDICATOR_FUNCS.items():
         ns[name] = fn
@@ -53,11 +55,11 @@ def compile_strategy_code(code: str) -> type:
     candidates = [
         obj for name, obj in ns.items()
         if name not in baseline and isinstance(obj, type)
-        and issubclass(obj, (Strategy, PortfolioStrategy))
-        and obj not in (Strategy, PortfolioStrategy)
+        and issubclass(obj, (Strategy, PortfolioStrategy, OptionStrategy))
+        and obj not in (Strategy, PortfolioStrategy, OptionStrategy)
     ]
     if not candidates:
-        raise StrategyCodeError("代码中必须定义一个 Strategy 或 PortfolioStrategy 子类")
+        raise StrategyCodeError("代码中必须定义一个 Strategy / PortfolioStrategy / OptionStrategy 子类")
     if len(candidates) > 1:
         raise StrategyCodeError(f"只允许定义一个策略类，发现 {len(candidates)} 个: "
                                 f"{[c.__name__ for c in candidates]}")
@@ -79,6 +81,12 @@ def _synthetic_bars(n: int = 60) -> pd.DataFrame:
 def validate_strategy_class(cls: type) -> dict:
     """合成行情上试跑一遍回测，返回 {'ok', 'kind', 'trades'} 或抛 StrategyCodeError。"""
     from app.backtest.engine import BacktestEngine
+
+    if issubclass(cls, OptionStrategy):
+        # 期权策略无法回测（无历史数据源），仅校验结构
+        if not callable(getattr(cls, "on_run", None)):
+            raise StrategyCodeError("期权策略必须实现 async on_run(self, ctx)")
+        return {"ok": True, "kind": "option", "trades": 0}
 
     bars = {"US.TEST1": _synthetic_bars(), "US.TEST2": _synthetic_bars()}
     try:
@@ -137,7 +145,8 @@ def list_custom_strategies() -> list[dict]:
             "class_name": row.class_name,
             "params": getattr(cls, "params", {}),
             "doc": (cls.__doc__ or "").strip().split("\n")[0],
-            "kind": "portfolio" if issubclass(cls, PortfolioStrategy) else "single",
+            "kind": ("option" if issubclass(cls, OptionStrategy)
+                     else "portfolio" if issubclass(cls, PortfolioStrategy) else "single"),
             "custom": True,
         })
     return out

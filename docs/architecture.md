@@ -122,6 +122,17 @@ risk_events / notify_channels / app_settings / users。
 - **仍在范围外**：期权回测（无数据源）、希腊字母/IV、组合腿单、行权/被行权
   （被行权后的正股变动经持仓同步自然体现）。
 
+## 期权内置策略（迭代10）
+
+- `strategy/options.py`：`OptionStrategy.on_run(ctx)` 为 **async**（实盘专属，运行时实时查链），
+  `OptionStrategyContext` 提供 spot/正股持仓/期权持仓/现金/`select_contract`（到期区间内最近
+  到期日 + 虚值比例最近档行权价）/sell_open/buy_close。
+- 内置 **CoveredCall**（正股足额→滚动卖虚值 Call；dte≤roll_dte 先买回、下轮开新仓，避免同轮
+  开平竞态）与 **WheelStrategy**（无正股→现金担保卖 Put；接货后自动切换备兑 Call 腿）。
+- 驱动与股票策略一致（cron/手动运行），动作转信号走统一管道（备兑/担保/裸卖风控照常把关，
+  signal_only 只提醒）；链数据源：执行账户 → 任一在线真实券商（paper 执行 + 真实链 = 模拟验证）。
+- 编辑器支持自定义 OptionStrategy（校验只查结构不试跑）；回测 API 明确拒绝期权策略。
+
 ## 已知取舍
 
 - 日亏损基于成交时逐笔落库的 realized_pnl（持仓均价口径），IBKR 会再用 commissionReport
