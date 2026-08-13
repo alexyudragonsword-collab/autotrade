@@ -1,15 +1,28 @@
 """内置策略注册表：class_name → 策略类（单标的 Strategy 或组合 PortfolioStrategy）。"""
 
 from app.strategy.base import Strategy
+from app.strategy.builtin.bollinger_reversion import BollingerReversion
+from app.strategy.builtin.dca_invest import DcaInvest
+from app.strategy.builtin.donchian_breakout import DonchianBreakout
+from app.strategy.builtin.grid_trading import GridTrading
+from app.strategy.builtin.macd_trend import MacdTrend
 from app.strategy.builtin.rsi_reversion import RsiReversion
 from app.strategy.builtin.sma_cross import SmaCross
 from app.strategy.options import CashSecuredPut, CoveredCall, OptionStrategy, WheelStrategy
 from app.strategy.portfolio import MomentumRotation, PortfolioStrategy
 
 _REGISTRY: dict[str, type] = {
+    # 股票·单标的
     "SmaCross": SmaCross,
+    "MacdTrend": MacdTrend,
     "RsiReversion": RsiReversion,
+    "BollingerReversion": BollingerReversion,
+    "DonchianBreakout": DonchianBreakout,
+    "GridTrading": GridTrading,
+    "DcaInvest": DcaInvest,
+    # 股票·组合
     "MomentumRotation": MomentumRotation,
+    # 期权
     "CoveredCall": CoveredCall,
     "CashSecuredPut": CashSecuredPut,
     "WheelStrategy": WheelStrategy,
