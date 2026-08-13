@@ -1,0 +1,30 @@
+# 密钥与本地配置 —— 绝不提交
+.env
+*.pem
+
+# 运行时数据
+data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+
+# 前端
+node_modules/
+frontend/dist/
+
+# IDE
+.idea/
+.vscode/
+.DS_Store
