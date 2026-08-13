@@ -56,7 +56,7 @@ class OrderManager:
                 ref = await adapter.place_order(OrderRequest(
                     symbol=intent.symbol, market=intent.market, side=intent.side,
                     order_type=intent.order_type, qty=intent.qty,
-                    limit_price=order.limit_price,
+                    limit_price=order.limit_price, hint_price=intent.est_price,
                 ))
                 order.broker_order_id = ref.broker_order_id
                 if order.status == OrderStatus.PENDING_SUBMIT:

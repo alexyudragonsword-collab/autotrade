@@ -34,6 +34,7 @@ class OrderRequest:
     order_type: OrderType
     qty: float
     limit_price: float | None = None
+    hint_price: float | None = None  # 信号参考价；paper 无实时行情时的撮合兜底价，真实券商忽略
 
 
 @dataclass

@@ -1,0 +1,29 @@
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    ports:
+      - "8000:8000"
+    env_file:
+      - ../.env
+    environment:
+      # 容器内连 OpenD 服务名；IBKR Gateway 在宿主机时用 host.docker.internal
+      - FUTU_OPEND_HOST=futu-opend
+      - IBKR_HOST=host.docker.internal
+    volumes:
+      - ../data:/app/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  # 富途 OpenD 网关（可选，profile 启用：docker compose --profile futu up）
+  # 首次登录需验证码，建议先在宿主机交互式跑通后再容器化，详见 docs/broker-setup.md
+  futu-opend:
+    image: ailisp/futu-opend:latest
+    profiles: ["futu"]
+    ports:
+      - "11111:11111"
+    volumes:
+      - ./opend:/opend-config
+    restart: unless-stopped

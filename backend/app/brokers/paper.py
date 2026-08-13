@@ -71,7 +71,7 @@ class PaperBroker(BrokerAdapter):
             raise BrokerError("paper broker 未连接")
         oid = f"P{next(self._id_seq):08d}"
         if req.order_type == OrderType.MARKET:
-            price = await self._resolve_price(req.symbol, hint=req.limit_price)
+            price = await self._resolve_price(req.symbol, hint=req.hint_price)
             if price is None:
                 # 异步报告拒单（真实券商也是先受理再回报）
                 asyncio.get_running_loop().call_soon(
