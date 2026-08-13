@@ -522,6 +522,22 @@ def get_backtest(run_id: int, db: Session = Depends(get_db)):
     return _row(run)
 
 
+@router.get("/backtests/{run_id}/report")
+def backtest_report(run_id: int, db: Session = Depends(get_db)):
+    """自包含 HTML 回测报告（下载分享用）。"""
+    from fastapi.responses import HTMLResponse
+
+    from app.backtest.report import render_report
+
+    run = db.get(BacktestRun, run_id)
+    if run is None:
+        raise HTTPException(404, "回测不存在")
+    if run.status != "done":
+        raise HTTPException(400, "回测尚未完成")
+    return HTMLResponse(render_report(run), headers={
+        "Content-Disposition": f'attachment; filename="backtest_{run_id}.html"'})
+
+
 @router.get("/backtests/{run_id}/chart")
 def backtest_chart(run_id: int, symbol: str, db: Session = Depends(get_db)):
     """单标的 K 线 + 该回测在此标的上的逐笔买卖点（走查复盘用）。"""

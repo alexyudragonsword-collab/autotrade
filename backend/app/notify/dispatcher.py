@@ -40,6 +40,16 @@ def channel_matches(ch: NotifyChannel, event: NotifyEvent) -> bool:
 
 class NotifyDispatcher:
     async def emit(self, event: NotifyEvent) -> None:
+        # 广播到 WebSocket（浏览器即时弹窗），与外部渠道互不影响
+        try:
+            from app.events import get_event_bus
+
+            get_event_bus().publish("notify", {
+                "level": event.level, "title": event.title, "body": event.body,
+                "fields": event.fields, "strategy": event.strategy, "broker": event.broker,
+            })
+        except Exception:
+            logger.debug("事件总线广播失败", exc_info=True)
         db = SessionLocal()
         try:
             channels = db.scalars(select(NotifyChannel).where(NotifyChannel.enabled)).all()

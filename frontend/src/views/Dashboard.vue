@@ -96,6 +96,7 @@ import client from '../api/client'
 import SignalStatus from '../components/SignalStatus.vue'
 import OrderStatus from '../components/OrderStatus.vue'
 import { fmt, ts } from '../utils'
+import { onEvent } from '../ws'
 
 const summary = ref({ brokers: {}, recent_signals: [], recent_orders: [] })
 const tradingEnabled = ref(true)
@@ -128,11 +129,19 @@ async function toggleKillSwitch(value) {
   await client.post('/api/risk/kill-switch', { enabled: value })
 }
 
+let offSignal, offOrder
+
 onMounted(() => {
   load()
-  timer = setInterval(load, 10000)
+  timer = setInterval(load, 30000) // WebSocket 实时刷新为主，轮询降频兜底
+  offSignal = onEvent('signal', load)
+  offOrder = onEvent('order_update', load)
 })
-onUnmounted(() => clearInterval(timer))
+onUnmounted(() => {
+  clearInterval(timer)
+  offSignal?.()
+  offOrder?.()
+})
 </script>
 
 <style scoped>

@@ -95,6 +95,15 @@ risk_events / notify_channels / app_settings / users。
   {"strategies": [...], "brokers": [...]}（空=不限）；事件缺失元数据（kill switch 等系统级）
   时投递到所有渠道。典型用法：策略 A 的消息进 Telegram 群 A，实盘账户的消息单独发邮件。
 
+## 实时推送与发布（迭代8）
+
+- **WebSocket**：`events.py` 进程内事件总线（慢消费者丢最旧消息不阻塞业务）；
+  `/ws?token=<JWT>` 推送 signal / order_update / notify 三类事件 + 25s ping 保活；
+  前端自动重连（指数退避），通知事件即时弹窗，仪表盘/订单页实时刷新（轮询降频为兜底）。
+- **镜像发布**：push 到 main / 打 v* tag 时 GitHub Actions 构建镜像发布到
+  ghcr.io/<owner>/<repo>（含 buildx 缓存）。
+- **报告导出**：`backtest/report.py` 生成自包含 HTML（内联 SVG 曲线，零外部依赖）。
+
 ## 已知取舍
 
 - 日亏损基于成交时逐笔落库的 realized_pnl（持仓均价口径），IBKR 会再用 commissionReport

@@ -111,6 +111,13 @@ class OrderManager:
             if update.error_msg:
                 order.error_msg = update.error_msg[:300]
             db.commit()
+            from app.events import get_event_bus
+
+            get_event_bus().publish("order_update", {
+                "id": order.id, "broker": order.broker, "symbol": order.symbol,
+                "side": order.side, "qty": order.qty, "filled_qty": order.filled_qty,
+                "avg_fill_price": order.avg_fill_price, "status": order.status,
+            })
             if new.is_terminal:
                 await self._finalize_signal(db, order)
                 level = "info" if new == OrderStatus.FILLED else "warn"

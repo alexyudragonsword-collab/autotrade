@@ -103,11 +103,12 @@
 </template>
 
 <script setup>
-import { onMounted, ref, watch } from 'vue'
+import { onMounted, onUnmounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import client from '../api/client'
 import OrderStatus from '../components/OrderStatus.vue'
 import { fmt, ts } from '../utils'
+import { onEvent } from '../ws'
 
 const tab = ref('orders')
 const orders = ref([])
@@ -174,10 +175,16 @@ async function syncPositions() {
 }
 
 const accounts = ref([])
+let offOrder
 
 watch(tab, (v) => { if (v === 'positions') loadPositions() })
 onMounted(async () => {
   loadOrders()
+  offOrder = onEvent('order_update', () => {
+    if (tab.value === 'orders') loadOrders(page.value)
+    else loadPositions()
+  })
   accounts.value = await client.get('/api/broker-accounts')
 })
+onUnmounted(() => offOrder?.())
 </script>

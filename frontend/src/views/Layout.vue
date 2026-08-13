@@ -30,13 +30,19 @@
 </template>
 
 <script setup>
+import { onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { connectWs, disconnectWs } from '../ws'
 
 const router = useRouter()
 function logout() {
   localStorage.removeItem('token')
+  disconnectWs()
   router.push('/login')
 }
+
+onMounted(connectWs)
+onUnmounted(disconnectWs)
 </script>
 
 <style scoped>

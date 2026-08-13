@@ -72,7 +72,13 @@
           <el-table-column label="胜率" width="80"><template #default="{ row }">{{ row.metrics ? pct(row.metrics.win_rate) : '…' }}</template></el-table-column>
         </el-table>
       </el-card>
-      <el-card v-if="detail" :header="`回测 #${detail.id} — ${detail.strategy_class} ${JSON.stringify(detail.params)}`">
+      <el-card v-if="detail">
+        <template #header>
+          <div style="display: flex; justify-content: space-between; align-items: center">
+            <span>回测 #{{ detail.id }} — {{ detail.strategy_class }} {{ JSON.stringify(detail.params) }}</span>
+            <el-button v-if="detail.status === 'done'" size="small" @click="downloadReport">导出报告</el-button>
+          </div>
+        </template>
         <el-alert v-if="detail.error_msg" type="error" :title="detail.error_msg" :closable="false" style="margin-bottom: 12px" />
         <template v-if="detail.metrics">
           <el-row :gutter="12">
@@ -154,6 +160,19 @@ let chart = null
 let klineChart = null
 let timer = null
 let scanTimer = null
+
+async function downloadReport() {
+  const resp = await fetch(`/api/backtests/${detail.value.id}/report`, {
+    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+  })
+  const blob = await resp.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `backtest_${detail.value.id}.html`
+  a.click()
+  URL.revokeObjectURL(url)
+}
 
 async function loadKline(symbol) {
   if (!symbol || !detail.value) return

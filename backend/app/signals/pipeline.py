@@ -40,6 +40,13 @@ class SignalPipeline:
 
             await self._handle(db, sig, normalized)
             db.refresh(sig)
+            from app.events import get_event_bus
+
+            get_event_bus().publish("signal", {
+                "id": sig.id, "source": sig.source, "strategy": sig.strategy_name,
+                "symbol": sig.symbol, "action": sig.action, "quantity": sig.quantity,
+                "status": sig.status, "reject_reason": sig.reject_reason,
+            })
             return sig
         finally:
             db.close()
