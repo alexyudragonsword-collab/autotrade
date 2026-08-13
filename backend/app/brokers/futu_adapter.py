@@ -53,11 +53,16 @@ _FUTU_STATUS_MAP = {
 
 
 class FutuAdapter(BrokerAdapter):
-    name = "futu"
     markets = {Market.CN, Market.HK, Market.US}
 
-    def __init__(self):
+    def __init__(self, name: str = "futu", host: str | None = None, port: int | None = None,
+                 trd_env: str | None = None):
         super().__init__()
+        s = get_settings()
+        self.name = name
+        self.host = host or s.futu_opend_host
+        self.port = port or s.futu_opend_port
+        self.trd_env = trd_env or s.futu_trd_env
         self._trd_ctx = None
         self._quote_ctx = None
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -80,15 +85,15 @@ class FutuAdapter(BrokerAdapter):
         try:
             self._trd_ctx = ft.OpenSecTradeContext(
                 filter_trdmarket=ft.TrdMarket.NONE,  # 不过滤，单上下文管理多市场账户
-                host=s.futu_opend_host, port=s.futu_opend_port,
+                host=self.host, port=self.port,
                 security_firm=ft.SecurityFirm.FUTUSECURITIES,
             )
-            self._quote_ctx = ft.OpenQuoteContext(host=s.futu_opend_host, port=s.futu_opend_port)
+            self._quote_ctx = ft.OpenQuoteContext(host=self.host, port=self.port)
         except Exception as e:
             self._trd_ctx = self._quote_ctx = None
-            raise BrokerError(f"连接 OpenD 失败（{s.futu_opend_host}:{s.futu_opend_port}）: {e}")
+            raise BrokerError(f"连接 OpenD 失败（{self.host}:{self.port}）: {e}")
 
-        if s.futu_trd_env == "REAL":
+        if self.trd_env == "REAL":
             if not s.futu_unlock_pwd:
                 raise BrokerError("真实环境需要配置 FUTU_UNLOCK_PWD")
             ret, data = self._trd_ctx.unlock_trade(s.futu_unlock_pwd)
@@ -128,7 +133,7 @@ class FutuAdapter(BrokerAdapter):
 
         self._trd_ctx.set_handler(_OrderHandler())
         self._trd_ctx.set_handler(_DealHandler())
-        logger.info("富途 OpenD 已连接（env=%s）", s.futu_trd_env)
+        logger.info("富途[%s] OpenD 已连接（%s:%s env=%s）", self.name, self.host, self.port, self.trd_env)
 
     async def disconnect(self) -> None:
         def _close():
@@ -151,7 +156,7 @@ class FutuAdapter(BrokerAdapter):
     def _trd_env(self):
         import futu as ft
 
-        return ft.TrdEnv.REAL if get_settings().futu_trd_env == "REAL" else ft.TrdEnv.SIMULATE
+        return ft.TrdEnv.REAL if self.trd_env == "REAL" else ft.TrdEnv.SIMULATE
 
     async def place_order(self, req: OrderRequest) -> BrokerOrderRef:
         return await asyncio.to_thread(self._place_order_sync, req)

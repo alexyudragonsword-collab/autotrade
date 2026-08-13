@@ -49,11 +49,9 @@
             <el-radio value="live">实盘下单</el-radio>
           </el-radio-group>
         </el-form-item>
-        <el-form-item label="执行券商">
+        <el-form-item label="执行账户">
           <el-select v-model="form.broker">
-            <el-option label="paper（模拟）" value="paper" />
-            <el-option label="futu（富途）" value="futu" />
-            <el-option label="ibkr（盈透）" value="ibkr" />
+            <el-option v-for="a in accounts" :key="a.name" :label="`${a.name}（${a.type}）`" :value="a.name" />
           </el-select>
         </el-form-item>
         <el-form-item label="默认数量">
@@ -160,8 +158,11 @@ async function remove(row) {
   load()
 }
 
+const accounts = ref([])
+
 onMounted(async () => {
   load()
   builtin.value = await client.get('/api/strategies/builtin')
+  accounts.value = await client.get('/api/broker-accounts')
 })
 </script>

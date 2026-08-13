@@ -67,6 +67,16 @@ risk_events / notify_channels / app_settings / users。
   （月/周/日首个交易日）调用一次，目标市值差额转市价单、下一根 bar 撮合；实盘侧将差额换算成
   买卖数量信号进入统一管道（等于自动执行调仓单，逐单过风控）。内置 `MomentumRotation` 动量轮动。
 
+## 多账户与持仓守护（迭代5）
+
+- **多账户**：`broker_accounts` 表存账户实例（name 即全系统 broker 标识），适配器全部参数化
+  可多实例；启动按表构建，表空时从 env 播种默认账户（向后兼容）；Web 增删/启停账户即时
+  注册/断开（新账户自动挂接成交回报回调）。密钥仍走 env。有持仓的账户禁止删除。
+- **持仓守护**：`risk/guard.py` 每分钟巡检 qty>0 持仓，维护 high_water_price；
+  止损（较成本亏损%）/止盈（较成本盈利%）/移动止损（距高水位回撤%）任一触发即市价全平，
+  Signal(source=risk_guard) 留痕 + 警告通知。守护单只减少敞口故不过限额规则，但服从
+  kill switch；在途卖单存在时不重复触发。
+
 ## 已知取舍
 
 - 日亏损基于成交时逐笔落库的 realized_pnl（持仓均价口径），IBKR 会再用 commissionReport

@@ -132,6 +132,9 @@ class RiskUpdate(BaseModel):
     max_daily_loss: float | None = None
     symbol_whitelist: list[str] | None = None
     trading_hours_enabled: bool | None = None
+    stop_loss_pct: float | None = None
+    take_profit_pct: float | None = None
+    trailing_stop_pct: float | None = None
 
 
 @router.get("/risk")
@@ -259,6 +262,89 @@ async def broker_account(name: str):
         return {"cash": acc.cash, "net_value": acc.net_value, "buying_power": acc.buying_power}
     except Exception as e:
         raise HTTPException(400, str(e))
+
+
+# ---------- 券商账户 ----------
+
+
+class BrokerAccountBody(BaseModel):
+    name: str
+    type: str  # paper | futu | ibkr
+    params: dict = {}
+    enabled: bool = True
+
+
+@router.get("/broker-accounts")
+def list_broker_accounts(db: Session = Depends(get_db)):
+    from app.db.models import BrokerAccount
+
+    manager = get_broker_manager()
+    status = manager.status()
+    out = []
+    for a in db.scalars(select(BrokerAccount).order_by(BrokerAccount.id)).all():
+        row = _row(a)
+        row.update(status.get(a.name, {"connected": False, "error": None}))
+        out.append(row)
+    return out
+
+
+@router.post("/broker-accounts")
+async def create_broker_account(body: BrokerAccountBody, db: Session = Depends(get_db)):
+    from app.db.models import BrokerAccount
+
+    if body.type not in ("paper", "futu", "ibkr"):
+        raise HTTPException(400, "type 必须是 paper/futu/ibkr")
+    if not body.name.strip() or len(body.name) > 32:
+        raise HTTPException(400, "账户名不合法")
+    if db.scalar(select(BrokerAccount).where(BrokerAccount.name == body.name)):
+        raise HTTPException(400, f"账户名 {body.name} 已存在")
+    account = BrokerAccount(**body.model_dump())
+    db.add(account)
+    db.commit()
+    db.refresh(account)
+    if account.enabled:
+        manager = get_broker_manager()
+        try:
+            adapter = await manager.add_account(account.type, account.name, account.params)
+            get_order_manager().attach_adapter(adapter)
+        except Exception as e:
+            raise HTTPException(400, f"账户已保存但注册失败: {e}")
+    return _row(account)
+
+
+@router.delete("/broker-accounts/{account_id}")
+async def delete_broker_account(account_id: int, db: Session = Depends(get_db)):
+    from app.db.models import BrokerAccount, Position as Pos
+
+    account = db.get(BrokerAccount, account_id)
+    if account is None:
+        return {"ok": True}
+    live_pos = db.scalar(select(func.count(Pos.id)).where(Pos.broker == account.name,
+                                                          Pos.qty != 0)) or 0
+    if live_pos:
+        raise HTTPException(400, f"账户 {account.name} 仍有 {live_pos} 笔持仓，请先平仓再删除")
+    await get_broker_manager().remove_account(account.name)
+    db.delete(account)
+    db.commit()
+    return {"ok": True}
+
+
+@router.post("/broker-accounts/{account_id}/toggle")
+async def toggle_broker_account(account_id: int, db: Session = Depends(get_db)):
+    from app.db.models import BrokerAccount
+
+    account = db.get(BrokerAccount, account_id)
+    if account is None:
+        raise HTTPException(404, "账户不存在")
+    account.enabled = not account.enabled
+    db.commit()
+    manager = get_broker_manager()
+    if account.enabled:
+        adapter = await manager.add_account(account.type, account.name, account.params)
+        get_order_manager().attach_adapter(adapter)
+    else:
+        await manager.remove_account(account.name)
+    return _row(account)
 
 
 # ---------- 手动下单 ----------

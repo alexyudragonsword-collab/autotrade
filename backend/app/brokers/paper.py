@@ -32,31 +32,41 @@ _CASH_KEY = "paper_cash"
 
 
 class PaperBroker(BrokerAdapter):
-    name = "paper"
     markets = {Market.CN, Market.HK, Market.US, Market.CRYPTO}
 
-    def __init__(self, quote_fn=None, partial_fill_ratio: float = 1.0, fee_bps: float = 3.0):
+    def __init__(self, name: str = "paper", quote_fn=None,
+                 partial_fill_ratio: float = 1.0, fee_bps: float = 3.0,
+                 initial_cash: float | None = None):
         super().__init__()
+        self.name = name  # 账户名即 broker 标识，可多实例
         self._connected = False
         self._id_seq = itertools.count(1)
         self._quote_fn = quote_fn  # 可选外部行情源: async (symbol) -> float | None
         self.partial_fill_ratio = partial_fill_ratio
         self.fee_bps = fee_bps
+        self.initial_cash = initial_cash
         # broker_order_id -> (OrderRequest, hint_price)
         self._pending_limits: dict[str, tuple[OrderRequest, float | None]] = {}
+
+    @property
+    def _cash_key(self) -> str:
+        # 默认账户沿用旧键名，向后兼容既有数据
+        return _CASH_KEY if self.name == "paper" else f"{_CASH_KEY}:{self.name}"
 
     # ---------- 连接 ----------
 
     async def connect(self) -> None:
         db = SessionLocal()
         try:
-            if db.get(AppSetting, _CASH_KEY) is None:
-                db.add(AppSetting(key=_CASH_KEY, value=get_settings().paper_initial_cash))
+            if db.get(AppSetting, self._cash_key) is None:
+                cash = self.initial_cash if self.initial_cash is not None \
+                    else get_settings().paper_initial_cash
+                db.add(AppSetting(key=self._cash_key, value=cash))
                 db.commit()
         finally:
             db.close()
         self._connected = True
-        logger.info("PaperBroker 已就绪")
+        logger.info("PaperBroker[%s] 已就绪", self.name)
 
     async def disconnect(self) -> None:
         self._connected = False
@@ -121,7 +131,7 @@ class PaperBroker(BrokerAdapter):
     async def get_account(self) -> AccountSnapshot:
         db = SessionLocal()
         try:
-            cash_row = db.get(AppSetting, _CASH_KEY)
+            cash_row = db.get(AppSetting, self._cash_key)
             cash = float(cash_row.value) if cash_row else 0.0
             net = cash
             for pos in await self.get_positions():
@@ -176,7 +186,7 @@ class PaperBroker(BrokerAdapter):
             if pos is None:
                 pos = Position(broker=self.name, symbol=req.symbol, market=req.market, qty=0.0, avg_cost=0.0)
                 db.add(pos)
-            cash_row = db.get(AppSetting, _CASH_KEY)
+            cash_row = db.get(AppSetting, self._cash_key)
             cash = float(cash_row.value) if cash_row else 0.0
             if req.side == OrderSide.BUY:
                 new_qty = pos.qty + qty

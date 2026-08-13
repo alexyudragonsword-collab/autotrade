@@ -68,11 +68,9 @@
 
   <el-dialog v-model="manualDialog" title="手动下单（经过风控）" width="440px">
     <el-form :model="manualForm" label-width="90px">
-      <el-form-item label="券商">
+      <el-form-item label="账户">
         <el-select v-model="manualForm.broker">
-          <el-option label="paper（模拟）" value="paper" />
-          <el-option label="futu（富途）" value="futu" />
-          <el-option label="ibkr（盈透）" value="ibkr" />
+          <el-option v-for="a in accounts" :key="a.name" :label="`${a.name}（${a.type}）`" :value="a.name" />
         </el-select>
       </el-form-item>
       <el-form-item label="标的">
@@ -175,6 +173,11 @@ async function syncPositions() {
   }
 }
 
+const accounts = ref([])
+
 watch(tab, (v) => { if (v === 'positions') loadPositions() })
-onMounted(() => loadOrders())
+onMounted(async () => {
+  loadOrders()
+  accounts.value = await client.get('/api/broker-accounts')
+})
 </script>

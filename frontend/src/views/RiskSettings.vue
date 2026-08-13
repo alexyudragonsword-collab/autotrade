@@ -30,6 +30,19 @@
             <el-switch v-model="cfg.trading_hours_enabled" />
             <span style="color: #9ca3af; font-size: 12px; margin-left: 8px">按各市场交易所时间校验</span>
           </el-form-item>
+          <el-divider>持仓守护（0 = 关闭；每分钟检查，触发即市价全平并通知）</el-divider>
+          <el-form-item label="止损 %">
+            <el-input-number v-model="cfg.stop_loss_pct" :min="0" :max="100" :precision="1" style="width: 200px" />
+            <span class="hint">亏损超过成本价该比例时平仓</span>
+          </el-form-item>
+          <el-form-item label="止盈 %">
+            <el-input-number v-model="cfg.take_profit_pct" :min="0" :max="1000" :precision="1" style="width: 200px" />
+            <span class="hint">盈利超过该比例时落袋</span>
+          </el-form-item>
+          <el-form-item label="移动止损 %">
+            <el-input-number v-model="cfg.trailing_stop_pct" :min="0" :max="100" :precision="1" style="width: 200px" />
+            <span class="hint">距持仓期最高价回撤该比例时平仓</span>
+          </el-form-item>
           <el-button type="primary" @click="save">保存</el-button>
         </el-form>
       </el-card>
@@ -52,6 +65,10 @@
     </el-col>
   </el-row>
 </template>
+
+<style scoped>
+.hint { color: #9ca3af; font-size: 12px; margin-left: 8px; }
+</style>
 
 <script setup>
 import { onMounted, ref } from 'vue'

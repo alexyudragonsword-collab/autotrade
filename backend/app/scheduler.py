@@ -40,10 +40,22 @@ async def _sync_positions():
 
 async def _check_paper_limits():
     from app.brokers.manager import get_broker_manager
+    from app.brokers.paper import PaperBroker
 
-    adapter = get_broker_manager().get_if_connected("paper")
-    if adapter is not None:
-        await adapter.check_pending_limits()
+    manager = get_broker_manager()
+    for name in list(manager._adapters):
+        adapter = manager.get_if_connected(name)
+        if isinstance(adapter, PaperBroker):
+            await adapter.check_pending_limits()
+
+
+async def _position_guard():
+    from app.risk.guard import run_position_guard
+
+    try:
+        await run_position_guard()
+    except Exception:
+        logger.exception("持仓守护执行失败")
 
 
 async def _run_screener_job(screener_id: int):
@@ -155,6 +167,7 @@ def start_scheduler() -> None:
     scheduler.add_job(_reconcile_orders, "interval", seconds=60, id="order_reconcile")
     scheduler.add_job(_sync_positions, "interval", seconds=60, id="position_sync")
     scheduler.add_job(_check_paper_limits, "interval", seconds=20, id="paper_limits")
+    scheduler.add_job(_position_guard, "interval", seconds=60, id="position_guard")
     scheduler.add_job(_backup_db, CronTrigger.from_crontab("30 20 * * *", timezone="UTC"),
                       id="db_backup")
 

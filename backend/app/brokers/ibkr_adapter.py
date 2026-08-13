@@ -56,11 +56,16 @@ class _Throttle:
 
 
 class IbkrAdapter(BrokerAdapter):
-    name = "ibkr"
     markets = {Market.US}
 
-    def __init__(self):
+    def __init__(self, name: str = "ibkr", host: str | None = None, port: int | None = None,
+                 client_id: int | None = None):
         super().__init__()
+        s = get_settings()
+        self.name = name
+        self.host = host or s.ibkr_host
+        self.port = port or s.ibkr_port
+        self.client_id = client_id if client_id is not None else s.ibkr_client_id
         self._ib = None
         self._throttle = _Throttle()
 
@@ -71,18 +76,17 @@ class IbkrAdapter(BrokerAdapter):
             from ib_async import IB
         except ImportError:
             raise BrokerError("未安装 ib_async（pip install 'autotrade[ibkr]'）")
-        s = get_settings()
         ib = IB()
         try:
-            await ib.connectAsync(s.ibkr_host, s.ibkr_port, clientId=s.ibkr_client_id, timeout=10)
+            await ib.connectAsync(self.host, self.port, clientId=self.client_id, timeout=10)
         except Exception as e:
-            raise BrokerError(f"连接 TWS/Gateway 失败（{s.ibkr_host}:{s.ibkr_port}）: {e}")
+            raise BrokerError(f"连接 TWS/Gateway 失败（{self.host}:{self.port}）: {e}")
         self._ib = ib
         ib.orderStatusEvent += self._on_ib_order_status
         ib.execDetailsEvent += self._on_ib_exec
         ib.commissionReportEvent += self._on_ib_commission
         ib.disconnectedEvent += lambda: logger.warning("IBKR 连接断开，等待健康检查自动重连")
-        logger.info("IBKR 已连接（%s:%s clientId=%s）", s.ibkr_host, s.ibkr_port, s.ibkr_client_id)
+        logger.info("IBKR[%s] 已连接（%s:%s clientId=%s）", self.name, self.host, self.port, self.client_id)
 
     async def disconnect(self) -> None:
         if self._ib is not None:

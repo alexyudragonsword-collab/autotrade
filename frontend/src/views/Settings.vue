@@ -21,24 +21,74 @@
       </el-card>
     </el-col>
     <el-col :span="12">
-      <el-card header="券商连接">
-        <el-table :data="brokerRows" size="small">
-          <el-table-column prop="name" label="券商" width="110" />
-          <el-table-column label="状态" width="90">
+      <el-card>
+        <template #header>
+          <div style="display: flex; justify-content: space-between; align-items: center">
+            <span>券商账户（可多实例）</span>
+            <el-button type="primary" size="small" @click="openAccountForm">添加账户</el-button>
+          </div>
+        </template>
+        <el-table :data="accounts" size="small">
+          <el-table-column prop="name" label="账户名" width="110" />
+          <el-table-column prop="type" label="类型" width="80" />
+          <el-table-column label="状态" width="80">
             <template #default="{ row }">
               <el-tag :type="row.connected ? 'success' : 'danger'" size="small">{{ row.connected ? '在线' : '离线' }}</el-tag>
             </template>
           </el-table-column>
-          <el-table-column prop="error" label="错误信息" show-overflow-tooltip />
-          <el-table-column label="操作" width="90">
+          <el-table-column label="参数"><template #default="{ row }">{{ JSON.stringify(row.params) }}</template></el-table-column>
+          <el-table-column prop="error" label="错误" show-overflow-tooltip />
+          <el-table-column label="操作" width="180">
             <template #default="{ row }">
-              <el-button link type="primary" @click="reconnect(row.name)">重连</el-button>
+              <el-button link type="primary" size="small" @click="reconnect(row.name)">重连</el-button>
+              <el-button link :type="row.enabled ? 'warning' : 'success'" size="small"
+                         @click="toggleAccount(row)">{{ row.enabled ? '停用' : '启用' }}</el-button>
+              <el-button link type="danger" size="small" @click="removeAccount(row)">删除</el-button>
             </template>
           </el-table-column>
         </el-table>
         <el-alert type="info" :closable="false" show-icon style="margin-top: 12px"
-                  title="券商启用与密钥在服务器 .env 中配置（FUTU_* / IBKR_*），修改后重启服务生效。富途需运行 OpenD 网关，盈透需运行 TWS 或 IB Gateway。" />
+                  title="密钥（富途解锁密码等）在服务器 .env 中配置。富途需 OpenD 网关，盈透需 TWS/IB Gateway；同一 Gateway 的多个 IBKR 账户需不同 client_id。" />
       </el-card>
+
+      <el-dialog v-model="accountDialog" title="添加券商账户" width="480px">
+        <el-form :model="accountForm" label-width="110px">
+          <el-form-item label="类型">
+            <el-select v-model="accountForm.type">
+              <el-option label="paper（模拟）" value="paper" />
+              <el-option label="futu（富途）" value="futu" />
+              <el-option label="ibkr（盈透）" value="ibkr" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="账户名">
+            <el-input v-model="accountForm.name" placeholder="如 paper2 / futu_real / ibkr_paper" />
+          </el-form-item>
+          <template v-if="accountForm.type === 'paper'">
+            <el-form-item label="初始资金">
+              <el-input-number v-model="accountForm.params.initial_cash" :min="1000" :step="100000" style="width: 200px" />
+            </el-form-item>
+          </template>
+          <template v-if="accountForm.type === 'futu'">
+            <el-form-item label="OpenD 地址"><el-input v-model="accountForm.params.host" placeholder="127.0.0.1" /></el-form-item>
+            <el-form-item label="端口"><el-input-number v-model="accountForm.params.port" :min="1" :max="65535" /></el-form-item>
+            <el-form-item label="环境">
+              <el-radio-group v-model="accountForm.params.trd_env">
+                <el-radio value="SIMULATE">模拟</el-radio>
+                <el-radio value="REAL">实盘</el-radio>
+              </el-radio-group>
+            </el-form-item>
+          </template>
+          <template v-if="accountForm.type === 'ibkr'">
+            <el-form-item label="Gateway 地址"><el-input v-model="accountForm.params.host" placeholder="127.0.0.1" /></el-form-item>
+            <el-form-item label="端口"><el-input-number v-model="accountForm.params.port" :min="1" :max="65535" /></el-form-item>
+            <el-form-item label="client_id"><el-input-number v-model="accountForm.params.client_id" :min="1" :max="999" /></el-form-item>
+          </template>
+        </el-form>
+        <template #footer>
+          <el-button @click="accountDialog = false">取消</el-button>
+          <el-button type="primary" @click="saveAccount">保存并连接</el-button>
+        </template>
+      </el-dialog>
     </el-col>
   </el-row>
 </template>
@@ -50,7 +100,34 @@ import client from '../api/client'
 
 const settings = ref({})
 const brokers = ref({})
+const accounts = ref([])
 const loading = ref(true)
+const accountDialog = ref(false)
+const accountForm = ref({ type: 'paper', name: '', params: {} })
+
+function openAccountForm() {
+  accountForm.value = { type: 'paper', name: '', params: { initial_cash: 1000000 } }
+  accountDialog.value = true
+}
+
+async function saveAccount() {
+  await client.post('/api/broker-accounts', accountForm.value)
+  accountDialog.value = false
+  ElMessage.success('账户已添加')
+  load()
+}
+
+async function toggleAccount(row) {
+  await client.post(`/api/broker-accounts/${row.id}/toggle`)
+  load()
+}
+
+async function removeAccount(row) {
+  await ElMessageBox.confirm(`确定删除账户 ${row.name}？`, '删除', { type: 'warning' })
+  await client.delete(`/api/broker-accounts/${row.id}`)
+  ElMessage.success('已删除')
+  load()
+}
 
 const webhookUrl = computed(() =>
   settings.value.webhook_path ? `${location.origin}${settings.value.webhook_path}` : '')
@@ -73,6 +150,7 @@ const brokerRows = computed(() =>
 async function load() {
   settings.value = await client.get('/api/settings')
   brokers.value = await client.get('/api/brokers/status')
+  accounts.value = await client.get('/api/broker-accounts')
   loading.value = false
 }
 

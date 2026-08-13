@@ -82,6 +82,7 @@ class Position(Base):
     market: Mapped[str] = mapped_column(String(8))
     qty: Mapped[float] = mapped_column(Float, default=0.0)
     avg_cost: Mapped[float] = mapped_column(Float, default=0.0)
+    high_water_price: Mapped[float | None] = mapped_column(Float, nullable=True)  # 移动止损高水位
     last_sync_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -161,6 +162,10 @@ class RiskConfig(Base):
     max_daily_loss: Mapped[float] = mapped_column(Float, default=20000.0)  # 当日已实现亏损上限
     symbol_whitelist: Mapped[list] = mapped_column(JSON, default=list)  # 空 = 不限制
     trading_hours_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    # 持仓守护（0 = 关闭）。守护平仓单只减少敞口，不经限额规则，但服从 kill switch
+    stop_loss_pct: Mapped[float] = mapped_column(Float, default=0.0)  # 亏损百分比止损
+    take_profit_pct: Mapped[float] = mapped_column(Float, default=0.0)  # 盈利百分比止盈
+    trailing_stop_pct: Mapped[float] = mapped_column(Float, default=0.0)  # 距高水位回撤百分比
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
@@ -172,6 +177,22 @@ class RiskEventLog(Base):
     decision: Mapped[str] = mapped_column(String(8))  # allow | block
     reason: Mapped[str | None] = mapped_column(String(300), nullable=True)
     ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
+class BrokerAccount(Base):
+    """券商账户实例：同一类型可配多个（如富途模拟+实盘、两个 paper 账户）。
+
+    name 即全系统的 broker 标识（StrategyConfig.broker / Order.broker / Position.broker）。
+    params 只存非敏感连接参数；解锁密码等密钥一律走环境变量。
+    """
+
+    __tablename__ = "broker_accounts"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(32), unique=True)
+    type: Mapped[str] = mapped_column(String(16))  # paper | futu | ibkr
+    params: Mapped[dict] = mapped_column(JSON, default=dict)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class AuditLog(Base):

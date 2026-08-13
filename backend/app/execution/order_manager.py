@@ -33,8 +33,12 @@ class OrderManager:
     def attach_callbacks(self) -> None:
         """注册所有 broker 的回报回调（启动时调用一次）。"""
         for adapter in self.brokers._adapters.values():
-            adapter.on_order_update(self._on_order_update)
-            adapter.on_fill(self._on_fill)
+            self.attach_adapter(adapter)
+
+    def attach_adapter(self, adapter) -> None:
+        """为运行时新增的账户挂接回报回调。"""
+        adapter.on_order_update(self._on_order_update)
+        adapter.on_fill(self._on_fill)
 
     # ---------- 下单 ----------
 
