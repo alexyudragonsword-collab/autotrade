@@ -126,7 +126,8 @@ async def run_position_guard() -> list[dict]:
                 level=NotifyLevel.WARN, title="持仓守护平仓",
                 body=reason,
                 fields={"标的": pos.symbol, "账户": pos.broker,
-                        "数量": pos.qty, "订单": f"#{order.id}"}))
+                        "数量": pos.qty, "订单": f"#{order.id}"},
+                broker=pos.broker))
             logger.warning("持仓守护平仓 %s（%s）：%s", pos.symbol, pos.broker, reason)
         return triggered
     finally:

@@ -14,6 +14,7 @@ const routes = [
       { path: 'editor', component: () => import('../views/StrategyEditor.vue'), meta: { title: '策略编辑器' } },
       { path: 'screener', component: () => import('../views/Screener.vue'), meta: { title: '选股器' } },
       { path: 'backtest', component: () => import('../views/Backtest.vue'), meta: { title: '回测中心' } },
+      { path: 'performance', component: () => import('../views/Performance.vue'), meta: { title: '绩效分析' } },
       { path: 'risk', component: () => import('../views/RiskSettings.vue'), meta: { title: '风控设置' } },
       { path: 'notify', component: () => import('../views/NotifySettings.vue'), meta: { title: '通知设置' } },
       { path: 'settings', component: () => import('../views/Settings.vue'), meta: { title: '系统设置' } },

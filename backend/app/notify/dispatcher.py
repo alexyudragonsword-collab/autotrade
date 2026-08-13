@@ -21,6 +21,23 @@ _NOTIFIERS: dict[str, Notifier] = {
 }
 
 
+def channel_matches(ch: NotifyChannel, event: NotifyEvent) -> bool:
+    """级别 + 路由过滤。config: {"strategies": [...], "brokers": [...]}，空列表 = 不限。
+
+    事件缺少对应元数据（系统级事件，如 kill switch）时视为匹配所有渠道。
+    """
+    if event.level.rank < NotifyLevel(ch.min_level).rank:
+        return False
+    cfg = ch.config or {}
+    strategies = cfg.get("strategies") or []
+    if strategies and event.strategy is not None and event.strategy not in strategies:
+        return False
+    brokers = cfg.get("brokers") or []
+    if brokers and event.broker is not None and event.broker not in brokers:
+        return False
+    return True
+
+
 class NotifyDispatcher:
     async def emit(self, event: NotifyEvent) -> None:
         db = SessionLocal()
@@ -29,7 +46,7 @@ class NotifyDispatcher:
         finally:
             db.close()
         for ch in channels:
-            if event.level.rank < NotifyLevel(ch.min_level).rank:
+            if not channel_matches(ch, event):
                 continue
             notifier = _NOTIFIERS.get(ch.type)
             if notifier is None:
@@ -65,7 +82,8 @@ def order_event(order: Order, level: str = "info") -> NotifyEvent:
         fields["成交均价"] = order.avg_fill_price
     if order.error_msg:
         fields["原因"] = order.error_msg
-    return NotifyEvent(level=NotifyLevel(level), title=title, body="", fields=fields)
+    return NotifyEvent(level=NotifyLevel(level), title=title, body="", fields=fields,
+                       broker=order.broker)
 
 
 _dispatcher: NotifyDispatcher | None = None

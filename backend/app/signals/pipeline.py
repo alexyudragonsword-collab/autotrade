@@ -58,7 +58,7 @@ class SignalPipeline:
             sig.status = SignalStatus.EXECUTED
             sig.reject_reason = None
             db.commit()
-            await dispatcher.emit(self._event(sig, "收到交易信号（仅提醒模式，未下单）", NotifyLevel.INFO))
+            await dispatcher.emit(self._event(sig, "收到交易信号（仅提醒模式，未下单）", NotifyLevel.INFO, broker=strategy.broker))
             return
 
         # live：确定数量与方向
@@ -72,7 +72,8 @@ class SignalPipeline:
         if not qty or qty <= 0:
             reason = "无可执行数量（信号未带 qty 且策略未配置 default_qty，或平仓时无持仓）"
             self._reject(db, sig, SignalStatus.REJECTED, reason)
-            await dispatcher.emit(self._event(sig, f"信号被拒绝：{reason}", NotifyLevel.WARN))
+            await dispatcher.emit(self._event(sig, f"信号被拒绝：{reason}", NotifyLevel.WARN,
+                                              broker=strategy.broker))
             return
 
         est_price = normalized.price
@@ -88,7 +89,7 @@ class SignalPipeline:
         decision = get_risk_engine().check(db, intent)
         if not decision.allowed:
             self._reject(db, sig, SignalStatus.REJECTED_RISK, f"[{decision.rule_name}] {decision.reason}")
-            await dispatcher.emit(self._event(sig, f"风控拦截：{decision.reason}", NotifyLevel.WARN))
+            await dispatcher.emit(self._event(sig, f"风控拦截：{decision.reason}", NotifyLevel.WARN, broker=strategy.broker))
             return
 
         order = await get_order_manager().submit(intent, signal_id=sig.id)
@@ -99,7 +100,8 @@ class SignalPipeline:
             sig.status = SignalStatus.ROUTED
         db.commit()
         await dispatcher.emit(self._event(
-            sig, f"信号已提交 {strategy.broker} 下单（订单 #{order.id}）", NotifyLevel.INFO))
+            sig, f"信号已提交 {strategy.broker} 下单（订单 #{order.id}）", NotifyLevel.INFO,
+            broker=strategy.broker))
 
     # ---------- 辅助 ----------
 
@@ -110,12 +112,12 @@ class SignalPipeline:
         db.commit()
 
     @staticmethod
-    def _event(sig: Signal, body: str, level: NotifyLevel) -> NotifyEvent:
+    def _event(sig: Signal, body: str, level: NotifyLevel, broker: str | None = None) -> NotifyEvent:
         action_cn = {"buy": "买入", "sell": "卖出", "close": "平仓"}.get(sig.action, sig.action)
         return NotifyEvent(level=level, title="交易信号", body=body, fields={
             "策略": sig.strategy_name, "标的": sig.symbol, "动作": action_cn,
             "数量": sig.quantity or "-", "价格": sig.price or "市价",
-        })
+        }, strategy=sig.strategy_name, broker=broker)
 
     @staticmethod
     async def _estimate_price(broker: str, symbol: str) -> float | None:

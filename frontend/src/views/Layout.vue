@@ -11,6 +11,7 @@
         <el-menu-item index="/editor">✏️ 策略编辑器</el-menu-item>
         <el-menu-item index="/screener">🔍 选股器</el-menu-item>
         <el-menu-item index="/backtest">📈 回测中心</el-menu-item>
+        <el-menu-item index="/performance">💰 绩效分析</el-menu-item>
         <el-menu-item index="/risk">🛡️ 风控设置</el-menu-item>
         <el-menu-item index="/notify">🔔 通知设置</el-menu-item>
         <el-menu-item index="/settings">⚙️ 系统设置</el-menu-item>

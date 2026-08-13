@@ -117,6 +117,9 @@ class NotifyEvent:
     title: str
     body: str
     fields: dict = field(default_factory=dict)
+    # 路由元数据：渠道可按策略/账户过滤；为 None 的事件（系统级）投递到所有渠道
+    strategy: str | None = None
+    broker: str | None = None
 
 
 # ---------- API ----------

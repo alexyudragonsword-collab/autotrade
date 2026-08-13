@@ -49,6 +49,15 @@ async def _check_paper_limits():
             await adapter.check_pending_limits()
 
 
+async def _account_snapshots():
+    from app.api.performance import record_account_snapshots
+
+    try:
+        await record_account_snapshots()
+    except Exception:
+        logger.exception("账户净值快照失败")
+
+
 async def _position_guard():
     from app.risk.guard import run_position_guard
 
@@ -170,6 +179,7 @@ def start_scheduler() -> None:
     scheduler.add_job(_position_guard, "interval", seconds=60, id="position_guard")
     scheduler.add_job(_backup_db, CronTrigger.from_crontab("30 20 * * *", timezone="UTC"),
                       id="db_backup")
+    scheduler.add_job(_account_snapshots, "interval", hours=4, id="account_snapshots")
 
     db = SessionLocal()
     try:

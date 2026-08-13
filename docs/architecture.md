@@ -86,6 +86,15 @@ risk_events / notify_channels / app_settings / users。
 - **走查图**：`GET /api/backtests/{id}/chart?symbol=` 返回该回测周期的 K 线 + 逐笔买卖点，
   前端 ECharts 蜡烛图标注（dataZoom 缩放复盘）。
 
+## 绩效归因与通知路由（迭代7）
+
+- **绩效**：`api/performance.py` —— 基于成交时落库的 realized_pnl，按 Signal.strategy_name /
+  Order.broker / Order.symbol 三维归因（盈亏/平仓次数/胜率/手续费）+ 每日盈亏序列；
+  `account_snapshots` 表每 4 小时记录各在线账户净值（同日 upsert），绩效页画净值曲线。
+- **通知路由**：NotifyEvent 携带 strategy/broker 元数据，渠道 config 存
+  {"strategies": [...], "brokers": [...]}（空=不限）；事件缺失元数据（kill switch 等系统级）
+  时投递到所有渠道。典型用法：策略 A 的消息进 Telegram 群 A，实盘账户的消息单独发邮件。
+
 ## 已知取舍
 
 - 日亏损基于成交时逐笔落库的 realized_pnl（持仓均价口径），IBKR 会再用 commissionReport

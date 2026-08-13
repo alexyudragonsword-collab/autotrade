@@ -45,6 +45,19 @@
             <el-option label="error（仅错误）" value="error" />
           </el-select>
         </el-form-item>
+        <el-form-item label="限定策略">
+          <el-select v-model="filterStrategies" multiple clearable placeholder="留空 = 全部策略" style="width: 100%">
+            <el-option v-for="s in strategyOptions" :key="s" :label="s" :value="s" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="限定账户">
+          <el-select v-model="filterBrokers" multiple clearable placeholder="留空 = 全部账户" style="width: 100%">
+            <el-option v-for="a in accountOptions" :key="a" :label="a" :value="a" />
+          </el-select>
+        </el-form-item>
+        <div style="color: #9ca3af; font-size: 12px; margin-left: 100px">
+          系统级事件（kill switch 等）不受限定影响，始终投递到本渠道。
+        </div>
       </el-form>
       <template #footer>
         <el-button @click="dialog = false">取消</el-button>
@@ -65,6 +78,19 @@ const dialog = ref(false)
 const form = ref({})
 const testingId = ref(null)
 const typeNames = { telegram: 'Telegram', email: '邮件', wecom: '企业微信', dingtalk: '钉钉' }
+const filterStrategies = ref([])
+const filterBrokers = ref([])
+const strategyOptions = ref([])
+const accountOptions = ref([])
+
+async function loadOptions() {
+  try {
+    const strategies = await client.get('/api/strategies')
+    strategyOptions.value = strategies.map((s) => s.name)
+    const accounts = await client.get('/api/broker-accounts')
+    accountOptions.value = accounts.map((a) => a.name)
+  } catch { /* 选项加载失败不阻塞页面 */ }
+}
 
 async function load() {
   loading.value = true
@@ -77,11 +103,23 @@ async function load() {
 
 function openForm(row) {
   form.value = row ? { ...row } : { type: 'telegram', name: '', enabled: true, min_level: 'info' }
+  filterStrategies.value = row?.config?.strategies || []
+  filterBrokers.value = row?.config?.brokers || []
   dialog.value = true
 }
 
+function _body(row, overrides = {}) {
+  return {
+    type: row.type, name: row.name, enabled: row.enabled, min_level: row.min_level,
+    config: row.config || {},
+    ...overrides,
+  }
+}
+
 async function save() {
-  const body = { type: form.value.type, name: form.value.name, enabled: form.value.enabled, min_level: form.value.min_level }
+  const body = _body(form.value, {
+    config: { strategies: filterStrategies.value, brokers: filterBrokers.value },
+  })
   if (form.value.id) await client.put(`/api/notify/channels/${form.value.id}`, body)
   else await client.post('/api/notify/channels', body)
   dialog.value = false
@@ -89,7 +127,7 @@ async function save() {
 }
 
 async function toggle(row, v) {
-  await client.put(`/api/notify/channels/${row.id}`, { type: row.type, name: row.name, enabled: v, min_level: row.min_level })
+  await client.put(`/api/notify/channels/${row.id}`, _body(row, { enabled: v }))
   load()
 }
 
@@ -109,5 +147,8 @@ async function remove(row) {
   load()
 }
 
-onMounted(load)
+onMounted(() => {
+  load()
+  loadOptions()
+})
 </script>

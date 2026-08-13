@@ -1,6 +1,16 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -177,6 +187,19 @@ class RiskEventLog(Base):
     decision: Mapped[str] = mapped_column(String(8))  # allow | block
     reason: Mapped[str | None] = mapped_column(String(300), nullable=True)
     ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
+class AccountValueSnapshot(Base):
+    """账户每日净值快照（绩效曲线数据源）。同账户同日 upsert。"""
+
+    __tablename__ = "account_snapshots"
+    __table_args__ = (UniqueConstraint("broker", "date", name="uq_account_snapshot_day"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    broker: Mapped[str] = mapped_column(String(32), index=True)
+    date: Mapped[str] = mapped_column(String(10))  # UTC 日期
+    cash: Mapped[float] = mapped_column(Float, default=0.0)
+    net_value: Mapped[float] = mapped_column(Float, default=0.0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class CustomStrategy(Base):

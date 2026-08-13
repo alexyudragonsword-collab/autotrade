@@ -187,6 +187,8 @@ class ChannelBody(BaseModel):
     name: str = ""
     enabled: bool = True
     min_level: str = "info"
+    # 路由过滤：空列表 = 不限制；系统级事件（无策略/账户元数据）始终投递
+    config: dict = {}
 
 
 @router.get("/notify/channels")
