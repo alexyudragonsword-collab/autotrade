@@ -98,7 +98,7 @@ curl -X POST "http://localhost:8000/webhook/tradingview/<TOKEN>" \
 ## 测试
 
 ```bash
-pytest -q          # 55 个单测 + 端到端测试（GitHub Actions 自动运行）
+pytest -q          # 135 个单测 + 端到端测试（GitHub Actions 自动运行）
 ```
 
 ## 运维
