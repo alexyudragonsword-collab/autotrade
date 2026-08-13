@@ -132,6 +132,99 @@ async def run_strategy_now(strategy_id: int):
         raise HTTPException(400, str(e))
 
 
+# ---------- 自定义策略（在线编辑器）----------
+
+
+class CustomStrategyBody(BaseModel):
+    class_name: str
+    code: str
+    enabled: bool = True
+
+
+@router.get("/custom-strategies/template")
+def custom_strategy_template():
+    from app.strategy.custom import DEFAULT_TEMPLATE
+
+    return {"template": DEFAULT_TEMPLATE}
+
+
+@router.get("/custom-strategies")
+def list_custom_strategy_rows(db: Session = Depends(get_db)):
+    from app.db.models import CustomStrategy
+
+    return [_row(s) for s in db.scalars(select(CustomStrategy).order_by(CustomStrategy.id)).all()]
+
+
+@router.post("/custom-strategies/validate")
+def validate_custom_strategy(body: CustomStrategyBody):
+    from app.strategy.custom import StrategyCodeError, compile_strategy_code, validate_strategy_class
+
+    try:
+        cls = compile_strategy_code(body.code)
+        report = validate_strategy_class(cls)
+    except StrategyCodeError as e:
+        raise HTTPException(400, str(e))
+    report["detected_class"] = cls.__name__
+    report["params"] = getattr(cls, "params", {})
+    return report
+
+
+def _save_custom(body: CustomStrategyBody, db: Session, existing_id: int | None = None):
+    from app.db.models import CustomStrategy
+    from app.strategy.custom import StrategyCodeError, compile_strategy_code, validate_strategy_class
+    from app.strategy.registry import _REGISTRY
+
+    try:
+        cls = compile_strategy_code(body.code)
+        validate_strategy_class(cls)
+    except StrategyCodeError as e:
+        raise HTTPException(400, str(e))
+    if cls.__name__ != body.class_name:
+        raise HTTPException(400, f"class_name 应与代码中的类名一致（检测到 {cls.__name__}）")
+    if body.class_name in _REGISTRY:
+        raise HTTPException(400, f"{body.class_name} 与内置策略同名，请换一个类名")
+
+    if existing_id is not None:
+        row = db.get(CustomStrategy, existing_id)
+        if row is None:
+            raise HTTPException(404, "自定义策略不存在")
+        row.class_name = body.class_name
+        row.code = body.code
+        row.enabled = body.enabled
+    else:
+        if db.scalar(select(CustomStrategy).where(CustomStrategy.class_name == body.class_name)):
+            raise HTTPException(400, f"{body.class_name} 已存在")
+        row = CustomStrategy(**body.model_dump())
+        db.add(row)
+    db.commit()
+    db.refresh(row)
+    return _row(row)
+
+
+@router.post("/custom-strategies")
+def create_custom_strategy(body: CustomStrategyBody, db: Session = Depends(get_db)):
+    return _save_custom(body, db)
+
+
+@router.put("/custom-strategies/{strategy_id}")
+def update_custom_strategy(strategy_id: int, body: CustomStrategyBody, db: Session = Depends(get_db)):
+    return _save_custom(body, db, existing_id=strategy_id)
+
+
+@router.delete("/custom-strategies/{strategy_id}")
+def delete_custom_strategy(strategy_id: int, db: Session = Depends(get_db)):
+    from app.db.models import CustomStrategy
+
+    row = db.get(CustomStrategy, strategy_id)
+    if row is not None:
+        used = db.scalar(select(StrategyConfig).where(StrategyConfig.class_name == row.class_name))
+        if used is not None:
+            raise HTTPException(400, f"策略配置「{used.name}」仍在使用该类，请先解绑")
+        db.delete(row)
+        db.commit()
+    return {"ok": True}
+
+
 # ---------- 选股器 ----------
 
 
@@ -427,3 +520,26 @@ def get_backtest(run_id: int, db: Session = Depends(get_db)):
     if run is None:
         raise HTTPException(404, "回测不存在")
     return _row(run)
+
+
+@router.get("/backtests/{run_id}/chart")
+def backtest_chart(run_id: int, symbol: str, db: Session = Depends(get_db)):
+    """单标的 K 线 + 该回测在此标的上的逐笔买卖点（走查复盘用）。"""
+    from app.backtest.engine import ts_label
+    from app.data.store import get_bar_store
+    from app.domain.enums import Market
+
+    run = db.get(BacktestRun, run_id)
+    if run is None:
+        raise HTTPException(404, "回测不存在")
+    if symbol not in (run.symbols or []):
+        raise HTTPException(400, f"{symbol} 不在该回测的标的列表中")
+    bars = get_bar_store().get_bars(Market(run.market), symbol, run.start_date, run.end_date,
+                                    refresh=False, interval=run.timeframe or "1d")
+    if bars.empty:
+        raise HTTPException(400, "本地无该标的行情缓存")
+    kline = [[ts_label(ts), round(float(r["open"]), 4), round(float(r["close"]), 4),
+              round(float(r["low"]), 4), round(float(r["high"]), 4), float(r["volume"])]
+             for ts, r in bars.iterrows()]
+    trades = [t for t in (run.trades or []) if t.get("symbol") == symbol]
+    return {"symbol": symbol, "kline": kline, "trades": trades}

@@ -179,6 +179,21 @@ class RiskEventLog(Base):
     ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
 
 
+class CustomStrategy(Base):
+    """Web 编辑器保存的自定义策略代码。
+
+    保存前经过编译 + 合成数据试跑校验；class_name 与内置策略同名时内置优先。
+    注意：代码以完整 Python 权限执行（自托管单用户系统），仅管理员可写。
+    """
+
+    __tablename__ = "custom_strategies"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    class_name: Mapped[str] = mapped_column(String(64), unique=True)
+    code: Mapped[str] = mapped_column(Text)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
 class BrokerAccount(Base):
     """券商账户实例：同一类型可配多个（如富途模拟+实盘、两个 paper 账户）。
 

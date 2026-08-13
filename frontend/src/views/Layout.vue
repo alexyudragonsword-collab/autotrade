@@ -8,6 +8,7 @@
         <el-menu-item index="/signals">📡 信号日志</el-menu-item>
         <el-menu-item index="/orders">📋 订单持仓</el-menu-item>
         <el-menu-item index="/strategies">🧠 策略管理</el-menu-item>
+        <el-menu-item index="/editor">✏️ 策略编辑器</el-menu-item>
         <el-menu-item index="/screener">🔍 选股器</el-menu-item>
         <el-menu-item index="/backtest">📈 回测中心</el-menu-item>
         <el-menu-item index="/risk">🛡️ 风控设置</el-menu-item>

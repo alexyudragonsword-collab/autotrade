@@ -77,6 +77,15 @@ risk_events / notify_channels / app_settings / users。
   Signal(source=risk_guard) 留痕 + 警告通知。守护单只减少敞口故不过限额规则，但服从
   kill switch；在途卖单存在时不重复触发。
 
+## 策略在线编辑器与回测走查（迭代6）
+
+- **自定义策略**：`strategy/custom.py` —— 代码在预置命名空间 exec（pd/np/指标函数/两种策略
+  基类），要求恰好定义一个策略类；保存前合成行情试跑回测拦截运行期错误；registry 先查内置
+  再查自定义（updated_at 变化即热重编译）。被策略配置引用的自定义策略禁止删除。
+  ⚠️ exec 即完整 Python 权限——自托管单用户系统，仅登录管理员可写，勿粘贴不明代码。
+- **走查图**：`GET /api/backtests/{id}/chart?symbol=` 返回该回测周期的 K 线 + 逐笔买卖点，
+  前端 ECharts 蜡烛图标注（dataZoom 缩放复盘）。
+
 ## 已知取舍
 
 - 日亏损基于成交时逐笔落库的 realized_pnl（持仓均价口径），IBKR 会再用 commissionReport

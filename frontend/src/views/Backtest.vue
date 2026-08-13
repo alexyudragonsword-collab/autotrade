@@ -95,6 +95,14 @@
               </div>
             </div>
           </template>
+          <el-divider>K 线走查（买卖点标注）</el-divider>
+          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px">
+            <el-select v-model="chartSymbol" placeholder="选择标的" style="width: 200px" @change="loadKline">
+              <el-option v-for="s in detail.symbols" :key="s" :label="s" :value="s" />
+            </el-select>
+            <span style="color: #9ca3af; font-size: 12px">红三角=买入，绿三角=卖出（悬停看价格数量）</span>
+          </div>
+          <div v-show="klineLoaded" ref="klineEl" style="height: 380px" />
           <el-divider>交易明细（{{ (detail.trades || []).length }} 笔）</el-divider>
           <el-table :data="detail.trades" size="small" max-height="300">
             <el-table-column prop="date" label="日期" width="110" />
@@ -139,9 +147,64 @@ const dateRange = ref(['2023-01-01', '2026-01-01'])
 const form = ref({ strategy_class: 'SmaCross', market: 'US', timeframe: '1d', initial_cash: 100000 })
 const scanMode = ref(false)
 const scanGroup = ref(null)
+const klineEl = ref(null)
+const chartSymbol = ref('')
+const klineLoaded = ref(false)
 let chart = null
+let klineChart = null
 let timer = null
 let scanTimer = null
+
+async function loadKline(symbol) {
+  if (!symbol || !detail.value) return
+  let data
+  try {
+    data = await client.get(`/api/backtests/${detail.value.id}/chart`, { params: { symbol } })
+  } catch {
+    return
+  }
+  klineLoaded.value = true
+  await nextTick()
+  if (!klineChart) klineChart = echarts.init(klineEl.value)
+  const dates = data.kline.map((k) => k[0])
+  const ohlc = data.kline.map((k) => [k[1], k[2], k[3], k[4]])  // [open, close, low, high]
+  const markPoints = data.trades.map((t) => ({
+    coord: [t.date, t.price],
+    value: `${t.side === 'buy' ? '买' : '卖'} ${t.qty}@${t.price}`,
+    symbol: 'triangle',
+    symbolSize: 12,
+    symbolRotate: t.side === 'buy' ? 0 : 180,
+    itemStyle: { color: t.side === 'buy' ? '#ef4444' : '#10b981' },
+    label: { show: false },
+  }))
+  klineChart.setOption({
+    tooltip: {
+      trigger: 'axis',
+      formatter(params) {
+        const bar = params.find((p) => p.seriesType === 'candlestick')
+        if (!bar) return ''
+        const [_, open, close, low, high] = bar.data
+        const marks = data.trades.filter((t) => t.date === bar.axisValue)
+          .map((t) => `<br/>${t.side === 'buy' ? '🔺买入' : '🔻卖出'} ${t.qty} @ ${t.price}`)
+        return `${bar.axisValue}<br/>开 ${open} 收 ${close}<br/>低 ${low} 高 ${high}${marks.join('')}`
+      },
+    },
+    grid: { top: 20, bottom: 60 },
+    xAxis: { type: 'category', data: dates },
+    yAxis: { type: 'value', scale: true },
+    dataZoom: [
+      { type: 'inside', start: 0, end: 100 },
+      { type: 'slider', bottom: 10 },
+    ],
+    series: [{
+      type: 'candlestick',
+      data: ohlc,
+      itemStyle: { color: '#ef4444', color0: '#10b981', borderColor: '#ef4444', borderColor0: '#10b981' },
+      markPoint: { data: markPoints },
+    }],
+  }, true)
+  klineChart.resize()
+}
 
 const currentDoc = computed(() =>
   builtin.value.find((b) => b.class_name === form.value.strategy_class)?.doc || '')
@@ -237,6 +300,12 @@ async function showRun(row) {
 
 async function render(run) {
   detail.value = run
+  klineLoaded.value = false
+  chartSymbol.value = ''
+  if (run.symbols?.length === 1 && run.status === 'done') {
+    chartSymbol.value = run.symbols[0]
+    loadKline(chartSymbol.value)
+  }
   if (!run.equity_curve?.length) return
   await nextTick()
   if (!chartEl.value) return
@@ -284,6 +353,7 @@ onUnmounted(() => {
   clearInterval(timer)
   clearInterval(scanTimer)
   chart?.dispose()
+  klineChart?.dispose()
 })
 </script>
 

@@ -14,9 +14,14 @@ _REGISTRY: dict[str, type] = {
 
 def get_strategy_class(name: str) -> type:
     cls = _REGISTRY.get(name)
-    if cls is None:
-        raise ValueError(f"未知策略类: {name}，可用: {list(_REGISTRY)}")
-    return cls
+    if cls is not None:
+        return cls
+    from app.strategy.custom import load_custom_strategy
+
+    custom = load_custom_strategy(name)
+    if custom is not None:
+        return custom
+    raise ValueError(f"未知策略类: {name}，内置: {list(_REGISTRY)}（或检查自定义策略是否启用）")
 
 
 def is_portfolio(cls: type) -> bool:
@@ -24,15 +29,20 @@ def is_portfolio(cls: type) -> bool:
 
 
 def list_strategies() -> list[dict]:
-    return [
+    builtin = [
         {
             "class_name": name,
             "params": cls.params,
             "doc": (cls.__doc__ or "").strip().split("\n")[0],
             "kind": "portfolio" if issubclass(cls, PortfolioStrategy) else "single",
+            "custom": False,
         }
         for name, cls in _REGISTRY.items()
     ]
+    from app.strategy.custom import list_custom_strategies
+
+    taken = {b["class_name"] for b in builtin}
+    return builtin + [c for c in list_custom_strategies() if c["class_name"] not in taken]
 
 
 __all__ = ["get_strategy_class", "is_portfolio", "list_strategies", "Strategy"]
