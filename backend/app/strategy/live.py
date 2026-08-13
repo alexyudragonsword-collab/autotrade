@@ -88,8 +88,15 @@ async def run_strategy_live(strategy_id: int) -> dict:
 
         strategy_cls = get_strategy_class(cfg.class_name)
         store = get_bar_store()
+        timeframe = cfg.timeframe or "1d"
+        lookback_days = _LOOKBACK_DAYS if timeframe == "1d" else 50  # 分钟线源只有近期数据
         end = date.today().isoformat()
-        start = (date.today() - timedelta(days=_LOOKBACK_DAYS)).isoformat()
+        start = (date.today() - timedelta(days=lookback_days)).isoformat()
+
+        from app.strategy.portfolio import PortfolioStrategy
+
+        if issubclass(strategy_cls, PortfolioStrategy):
+            return await _run_portfolio_live(db, cfg, strategy_cls, store, start, end, timeframe)
 
         emitted = 0
         errors: list[str] = []
@@ -100,7 +107,7 @@ async def run_strategy_live(strategy_id: int) -> dict:
                 errors.append(f"{symbol}: 无法识别市场前缀")
                 continue
             try:
-                bars = store.get_bars(market, symbol, start, end)
+                bars = store.get_bars(market, symbol, start, end, interval=timeframe)
             except Exception as e:
                 errors.append(f"{symbol}: 行情获取失败 {e}")
                 continue
@@ -119,7 +126,7 @@ async def run_strategy_live(strategy_id: int) -> dict:
                 errors.append(f"{symbol}: on_bar 异常 {e}")
                 continue
 
-            last_bar_date = bars.index[-1].date().isoformat()
+            last_bar_date = bars.index[-1].isoformat()
             last_close = float(bars["close"].iloc[-1])
             for act in ctx.actions:
                 emitted += 1
@@ -128,6 +135,83 @@ async def run_strategy_live(strategy_id: int) -> dict:
         return {"symbols": len(cfg.symbols), "signals": emitted, "errors": errors}
     finally:
         db.close()
+
+
+async def _run_portfolio_live(db, cfg: StrategyConfig, strategy_cls, store,
+                              start: str, end: str, timeframe: str) -> dict:
+    """组合策略实盘：on_rebalance 给出目标市值 → 与当前持仓差额 → 买卖信号入管道。"""
+    from app.brokers.manager import get_broker_manager
+    from app.strategy.portfolio import PortfolioContext
+
+    adapter = get_broker_manager().get_if_connected(cfg.broker)
+    if adapter is None:
+        return {"symbols": len(cfg.symbols), "signals": 0,
+                "errors": [f"券商 {cfg.broker} 离线，无法获取账户权益"]}
+    account = await adapter.get_account()
+
+    bars_map: dict[str, pd.DataFrame] = {}
+    errors: list[str] = []
+    for symbol in cfg.symbols:
+        try:
+            bars = store.get_bars(_market_of(symbol), symbol, start, end, interval=timeframe)
+        except Exception as e:
+            errors.append(f"{symbol}: 行情获取失败 {e}")
+            continue
+        if not bars.empty:
+            bars_map[symbol] = bars
+    if not bars_map:
+        return {"symbols": len(cfg.symbols), "signals": 0, "errors": errors + ["无任何行情数据"]}
+
+    positions = {
+        p.symbol: p.qty
+        for p in db.scalars(select(Position).where(Position.broker == cfg.broker)).all()
+    }
+
+    class _LivePortfolioContext(PortfolioContext):
+        def __init__(self):
+            self.symbols = list(bars_map)
+            self.targets: dict[str, float] = {}
+            self.logs: list[str] = []
+
+        def history(self, symbol, n):
+            return bars_map[symbol].iloc[-n:]
+
+        def position(self, symbol):
+            return positions.get(symbol, 0.0)
+
+        def price(self, symbol):
+            return float(bars_map[symbol]["close"].iloc[-1])
+
+        def equity(self):
+            return account.net_value
+
+        def order_target_value(self, symbol, value):
+            self.targets[symbol] = value
+
+        def log(self, msg):
+            self.logs.append(msg)
+            logger.info("[live-portfolio:%s] %s", cfg.name, msg)
+
+    ctx = _LivePortfolioContext()
+    strategy = strategy_cls(**(cfg.params or {}))
+    strategy.on_rebalance(ctx)
+
+    emitted = 0
+    for symbol, target_value in ctx.targets.items():
+        price = ctx.price(symbol)
+        if price <= 0:
+            continue
+        target_qty = int(target_value / price)
+        diff = target_qty - positions.get(symbol, 0.0)
+        if diff == 0:
+            continue
+        action = SignalAction.BUY if diff > 0 else SignalAction.SELL
+        act = _Action(action, abs(diff), None)
+        bar_ts = bars_map[symbol].index[-1].isoformat()
+        await _emit(cfg, symbol, _market_of(symbol), act, bar_ts, price)
+        emitted += 1
+
+    return {"symbols": len(cfg.symbols), "signals": emitted, "errors": errors}
 
 
 async def _emit(cfg: StrategyConfig, symbol: str, market: Market,

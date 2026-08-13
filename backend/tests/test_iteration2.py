@@ -85,8 +85,8 @@ def fake_store(tmp_path, monkeypatch):
     store.save("US.TEST", _bars(list(np.linspace(90, 100, 60))))
 
     class FrozenStore(BarStore):
-        def get_bars(self, market, symbol, start, end, refresh=True):
-            return super().get_bars(market, symbol, start, end, refresh=False)
+        def get_bars(self, market, symbol, start, end, refresh=True, interval="1d"):
+            return super().get_bars(market, symbol, start, end, refresh=False, interval=interval)
 
     frozen = FrozenStore(base_dir=tmp_path)
     monkeypatch.setattr(live_mod, "get_bar_store", lambda: frozen)

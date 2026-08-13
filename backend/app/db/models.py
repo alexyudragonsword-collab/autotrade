@@ -98,6 +98,7 @@ class StrategyConfig(Base):
     # 本地策略实盘驱动：监控标的与运行时间（cron，北京时间）；仅 class_name 非空时生效
     symbols: Mapped[list] = mapped_column(JSON, default=list)
     schedule_cron: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    timeframe: Mapped[str] = mapped_column(String(8), default="1d")  # 1d / 60m / 15m / 5m
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
@@ -133,6 +134,7 @@ class BacktestRun(Base):
     market: Mapped[str] = mapped_column(String(8), default="US")
     start_date: Mapped[str] = mapped_column(String(10))
     end_date: Mapped[str] = mapped_column(String(10))
+    timeframe: Mapped[str] = mapped_column(String(8), default="1d")
     initial_cash: Mapped[float] = mapped_column(Float, default=100000.0)
     commission_bps: Mapped[float] = mapped_column(Float, default=3.0)
     slippage_bps: Mapped[float] = mapped_column(Float, default=1.0)

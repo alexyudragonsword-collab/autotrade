@@ -35,7 +35,8 @@ def _run(run_id: int) -> None:
         market = Market(run.market)
         bars = {}
         for sym in run.symbols:
-            df = store.get_bars(market, sym, run.start_date, run.end_date)
+            df = store.get_bars(market, sym, run.start_date, run.end_date,
+                                interval=run.timeframe or "1d")
             if df.empty:
                 logger.warning("回测 %s：%s 无行情数据，跳过", run_id, sym)
             else:

@@ -57,6 +57,16 @@ risk_events / notify_channels / app_settings / users。
 - **备份**：调度器每日 UTC 20:30 备份 SQLite 至 `data/backups/`，保留 7 份
 - **CI**：GitHub Actions 跑后端 pytest + 前端构建
 
+## 多周期与组合策略（迭代4）
+
+- **多周期**：`BarStore`/`DataProvider` 带 `interval` 参数（1d/60m/15m/5m），分钟线独立
+  parquet 缓存并从缓存末日重拉补盘中缺口；`StrategyConfig.timeframe` / `BacktestRun.timeframe`
+  控制实盘与回测取数周期。数据源限制：yfinance 分钟线仅近 60 天；akshare 分钟线仅 A股近期。
+- **组合策略**：`strategy/portfolio.py` 定义 `PortfolioStrategy.on_rebalance(ctx)` —— ctx 提供
+  跨标的 history/position/price/equity 与 `order_target_value`（目标市值）。回测引擎在再平衡日
+  （月/周/日首个交易日）调用一次，目标市值差额转市价单、下一根 bar 撮合；实盘侧将差额换算成
+  买卖数量信号进入统一管道（等于自动执行调仓单，逐单过风控）。内置 `MomentumRotation` 动量轮动。
+
 ## 已知取舍
 
 - 日亏损基于成交时逐笔落库的 realized_pnl（持仓均价口径），IBKR 会再用 commissionReport

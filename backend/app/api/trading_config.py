@@ -39,6 +39,7 @@ class StrategyBody(BaseModel):
     default_qty: float = 0.0
     symbols: list[str] = []
     schedule_cron: str | None = None
+    timeframe: str = "1d"
     notes: str | None = None
 
 
@@ -305,6 +306,7 @@ class BacktestBody(BaseModel):
     market: str = "US"
     start_date: str
     end_date: str
+    timeframe: str = "1d"
     initial_cash: float = 100000.0
     commission_bps: float = 3.0
     slippage_bps: float = 1.0
@@ -335,6 +337,7 @@ class BacktestScanBody(BaseModel):
     market: str = "US"
     start_date: str
     end_date: str
+    timeframe: str = "1d"
     initial_cash: float = 100000.0
 
 _MAX_SCAN_COMBOS = 60
@@ -374,7 +377,7 @@ def create_backtest_scan(body: BacktestScanBody, db: Session = Depends(get_db)):
         run = BacktestRun(
             strategy_class=body.strategy_class, params=params, symbols=body.symbols,
             market=body.market, start_date=body.start_date, end_date=body.end_date,
-            initial_cash=body.initial_cash, group_id=group_id,
+            timeframe=body.timeframe, initial_cash=body.initial_cash, group_id=group_id,
         )
         db.add(run)
         db.flush()

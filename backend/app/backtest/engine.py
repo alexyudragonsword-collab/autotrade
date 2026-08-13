@@ -11,6 +11,14 @@ from dataclasses import dataclass, field
 import pandas as pd
 
 from app.strategy.base import Strategy, StrategyContext
+from app.strategy.portfolio import PortfolioContext, PortfolioStrategy, is_rebalance_day
+
+
+def ts_label(ts: pd.Timestamp) -> str:
+    """日线 → '2026-01-05'；分钟线 → '2026-01-05 10:30'。"""
+    if ts.hour == 0 and ts.minute == 0:
+        return ts.date().isoformat()
+    return ts.strftime("%Y-%m-%d %H:%M")
 
 
 @dataclass
@@ -64,8 +72,46 @@ class _BacktestContext(StrategyContext):
             self._engine.pending.append(BtOrder(self.symbol, "sell", qty, limit))
 
     def log(self, msg: str) -> None:
-        date = self._engine.calendar[self._i].date().isoformat()
+        date = ts_label(self._engine.calendar[self._i])
         self._engine.result.logs.append(f"[{date}] {self.symbol}: {msg}")
+
+
+class _PortfolioBacktestContext(PortfolioContext):
+    def __init__(self, engine: "BacktestEngine", ts: pd.Timestamp):
+        self._engine = engine
+        self._ts = ts
+        self.symbols = list(engine.bars)
+
+    def _visible(self, symbol: str) -> pd.DataFrame:
+        df = self._engine.bars[symbol]
+        return df.loc[df.index <= self._ts]
+
+    def history(self, symbol: str, n: int) -> pd.DataFrame:
+        return self._visible(symbol).iloc[-n:]
+
+    def position(self, symbol: str) -> float:
+        return self._engine.positions.get(symbol, (0.0, 0.0))[0]
+
+    def price(self, symbol: str) -> float:
+        visible = self._visible(symbol)
+        return float(visible["close"].iloc[-1]) if not visible.empty else 0.0
+
+    def equity(self) -> float:
+        return self._engine._equity(self._ts)
+
+    def order_target_value(self, symbol: str, value: float) -> None:
+        price = self.price(symbol)
+        if price <= 0:
+            return
+        target_qty = int(value / price)
+        diff = target_qty - self.position(symbol)
+        if diff > 0:
+            self._engine.pending.append(BtOrder(symbol, "buy", diff))
+        elif diff < 0:
+            self._engine.pending.append(BtOrder(symbol, "sell", -diff))
+
+    def log(self, msg: str) -> None:
+        self._engine.result.logs.append(f"[{ts_label(self._ts)}] {msg}")
 
 
 class BacktestEngine:
@@ -94,6 +140,8 @@ class BacktestEngine:
         if not self.bars or len(self.calendar) == 0:
             self.result.final_equity = self.cash
             return self.result
+        if issubclass(self.strategy_cls, PortfolioStrategy):
+            return self._run_portfolio()
         contexts = {s: _BacktestContext(self, s) for s in self.bars}
         strategies = {s: self.strategy_cls(**self.params) for s in self.bars}
         for s, ctx in contexts.items():
@@ -111,12 +159,29 @@ class BacktestEngine:
                 ctx._i = df.index.get_loc(ts)
                 strategies[sym].on_bar(ctx)
             # 3) 收盘计权益
-            self.result.equity_curve.append([ts.date().isoformat(), round(self._equity(ts), 2)])
+            self.result.equity_curve.append([ts_label(ts), round(self._equity(ts), 2)])
             if self.progress_cb and (i % 50 == 0 or i == total - 1):
                 self.progress_cb((i + 1) / total)
 
         for s, ctx in contexts.items():
             strategies[s].on_stop(ctx)
+        self.result.final_equity = self.result.equity_curve[-1][1] if self.result.equity_curve else self.cash
+        return self.result
+
+    def _run_portfolio(self) -> BtResult:
+        """组合策略模式：再平衡日调用 on_rebalance，目标市值差额转市价单，下一根 bar 撮合。"""
+        strategy = self.strategy_cls(**self.params)
+        freq = strategy.p.get("rebalance", "monthly")
+        total = len(self.calendar)
+        prev: pd.Timestamp | None = None
+        for i, ts in enumerate(self.calendar):
+            self._match_pending(ts)
+            if is_rebalance_day(prev, ts, freq):
+                strategy.on_rebalance(_PortfolioBacktestContext(self, ts))
+            prev = ts
+            self.result.equity_curve.append([ts_label(ts), round(self._equity(ts), 2)])
+            if self.progress_cb and (i % 50 == 0 or i == total - 1):
+                self.progress_cb((i + 1) / total)
         self.result.final_equity = self.result.equity_curve[-1][1] if self.result.equity_curve else self.cash
         return self.result
 
@@ -150,7 +215,7 @@ class BacktestEngine:
     def _execute(self, order: BtOrder, price: float, ts: pd.Timestamp) -> None:
         qty, avg = self.positions.get(order.symbol, (0.0, 0.0))
         fee = price * order.qty * self.commission
-        date = ts.date().isoformat()
+        date = ts_label(ts)
         if order.side == "buy":
             cost = price * order.qty + fee
             if cost > self.cash:  # 现金不足按可买数量缩量

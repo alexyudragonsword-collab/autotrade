@@ -68,8 +68,16 @@
             <el-select v-model="form.symbols" multiple filterable allow-create default-first-option
                        placeholder="本地策略驱动的标的，如 US.AAPL / SH.600519" style="width: 100%" />
           </el-form-item>
+          <el-form-item label="K线周期">
+            <el-select v-model="form.timeframe" style="width: 160px">
+              <el-option label="日线" value="1d" />
+              <el-option label="60分钟" value="60m" />
+              <el-option label="15分钟" value="15m" />
+              <el-option label="5分钟" value="5m" />
+            </el-select>
+          </el-form-item>
           <el-form-item label="运行时间(cron)">
-            <el-input v-model="form.schedule_cron" placeholder="如 10 16 * * 1-5（北京时间；留空只手动运行）" />
+            <el-input v-model="form.schedule_cron" placeholder="如 10 16 * * 1-5（北京时间；分钟级策略可用 */15 10-15 * * 1-5）" />
           </el-form-item>
         </template>
         <el-form-item label="备注">
@@ -120,7 +128,7 @@ async function load() {
 function openForm(row) {
   form.value = row
     ? { ...row, symbols: row.symbols || [] }
-    : { name: '', class_name: null, mode: 'signal_only', broker: 'paper', default_qty: 0, params: {}, enabled: true, notes: '', symbols: [], schedule_cron: '' }
+    : { name: '', class_name: null, mode: 'signal_only', broker: 'paper', default_qty: 0, params: {}, enabled: true, notes: '', symbols: [], schedule_cron: '', timeframe: '1d' }
   paramsText.value = JSON.stringify(form.value.params || {}, null, 0)
   dialog.value = true
 }

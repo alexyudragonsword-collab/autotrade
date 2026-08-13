@@ -13,12 +13,23 @@
             <el-input v-model="paramsText" type="textarea" :rows="2" />
             <el-checkbox v-model="scanMode" style="margin-top: 4px">参数扫描（值写成数组，如 {"fast":[5,10,20],"slow":[30,60]}）</el-checkbox>
           </el-form-item>
-          <el-form-item label="市场">
-            <el-select v-model="form.market">
-              <el-option label="美股 (US)" value="US" />
-              <el-option label="A股 (CN)" value="CN" />
-              <el-option label="港股 (HK)" value="HK" />
-            </el-select>
+          <el-form-item label="市场 / 周期">
+            <div style="display: flex; gap: 8px; width: 100%">
+              <el-select v-model="form.market" style="flex: 1">
+                <el-option label="美股 (US)" value="US" />
+                <el-option label="A股 (CN)" value="CN" />
+                <el-option label="港股 (HK)" value="HK" />
+              </el-select>
+              <el-select v-model="form.timeframe" style="flex: 1">
+                <el-option label="日线" value="1d" />
+                <el-option label="60分钟" value="60m" />
+                <el-option label="15分钟" value="15m" />
+                <el-option label="5分钟" value="5m" />
+              </el-select>
+            </div>
+            <div v-if="form.timeframe !== '1d'" style="color: #e6a23c; font-size: 12px">
+              分钟线数据源仅覆盖近期（美股约60天、A股近月），日期范围过长会自动裁剪
+            </div>
           </el-form-item>
           <el-form-item label="标的（逗号分隔）">
             <el-input v-model="symbolsText" placeholder="AAPL,MSFT 或 600519" />
@@ -125,7 +136,7 @@ const submitting = ref(false)
 const paramsText = ref('{}')
 const symbolsText = ref('AAPL')
 const dateRange = ref(['2023-01-01', '2026-01-01'])
-const form = ref({ strategy_class: 'SmaCross', market: 'US', initial_cash: 100000 })
+const form = ref({ strategy_class: 'SmaCross', market: 'US', timeframe: '1d', initial_cash: 100000 })
 const scanMode = ref(false)
 const scanGroup = ref(null)
 let chart = null

@@ -189,8 +189,8 @@ def test_runner_attaches_benchmark(seeded, tmp_path, monkeypatch):
     store.save("US.BM", _bars([100.0] * 30))
 
     class FrozenStore(BarStore):
-        def get_bars(self, market, symbol, start, end, refresh=True):
-            return super().get_bars(market, symbol, start, end, refresh=False)
+        def get_bars(self, market, symbol, start, end, refresh=True, interval="1d"):
+            return super().get_bars(market, symbol, start, end, refresh=False, interval=interval)
 
     monkeypatch.setattr(runner_mod, "get_bar_store", lambda: FrozenStore(base_dir=tmp_path))
 
