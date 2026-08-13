@@ -32,14 +32,19 @@ async def lifespan(app: FastAPI):
     from app.execution.order_manager import get_order_manager
     from app.scheduler import start_scheduler, stop_scheduler
 
+    from app.notify.telegram_bot import get_telegram_bot
+
     manager = get_broker_manager()
     get_order_manager()  # 注册回报回调
     await manager.connect_all()
     start_scheduler()
+    bot = get_telegram_bot()
+    bot.start()
     logger.info("AutoTrade 启动完成")
     try:
         yield
     finally:
+        await bot.stop()
         stop_scheduler()
         await manager.disconnect_all()
 

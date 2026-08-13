@@ -73,6 +73,17 @@
             </el-col>
           </el-row>
           <div ref="chartEl" style="height: 360px; margin-top: 16px" />
+          <template v-if="detail.metrics?.monthly_returns?.length">
+            <el-divider>月度收益</el-divider>
+            <div style="display: flex; flex-wrap: wrap; gap: 6px">
+              <div v-for="m in detail.metrics.monthly_returns" :key="m.month" class="month-cell"
+                   :style="{ background: m.ret >= 0 ? 'rgba(239,68,68,0.12)' : 'rgba(16,185,129,0.12)',
+                             color: m.ret >= 0 ? '#dc2626' : '#059669' }">
+                <div style="font-size: 11px; color: #6b7280">{{ m.month }}</div>
+                <div style="font-weight: 600">{{ pct(m.ret) }}</div>
+              </div>
+            </div>
+          </template>
           <el-divider>交易明细（{{ (detail.trades || []).length }} 笔）</el-divider>
           <el-table :data="detail.trades" size="small" max-height="300">
             <el-table-column prop="date" label="日期" width="110" />
@@ -127,7 +138,7 @@ const currentDoc = computed(() =>
 const metricCards = computed(() => {
   const m = detail.value?.metrics
   if (!m) return []
-  return [
+  const cards = [
     { label: '总收益', value: pct(m.total_return), color: m.total_return >= 0 ? '#ef4444' : '#10b981' },
     { label: '年化收益', value: pct(m.annual_return), color: m.annual_return >= 0 ? '#ef4444' : '#10b981' },
     { label: '夏普比率', value: m.sharpe },
@@ -136,6 +147,11 @@ const metricCards = computed(() => {
     { label: '交易次数', value: m.trade_count },
     { label: '期末权益', value: fmt(m.final_equity) },
   ]
+  if (m.benchmark_return != null) {
+    cards.push({ label: '基准(买入持有)', value: pct(m.benchmark_return) })
+    cards.push({ label: '超额收益 α', value: pct(m.alpha), color: m.alpha >= 0 ? '#ef4444' : '#10b981' })
+  }
+  return cards
 })
 
 function onStrategyChange(name) {
@@ -216,14 +232,24 @@ async function render(run) {
   if (!chart) chart = echarts.init(chartEl.value)
   const dates = run.equity_curve.map((p) => p[0])
   const equity = run.equity_curve.map((p) => p[1])
+  const benchmark = run.equity_curve[0]?.length > 2 ? run.equity_curve.map((p) => p[2]) : null
   let peak = -Infinity
   const drawdown = equity.map((e) => {
     peak = Math.max(peak, e)
     return +(((e - peak) / peak) * 100).toFixed(2)
   })
+  const series = [
+    { name: '策略权益', type: 'line', data: equity, showSymbol: false, lineStyle: { width: 2 } },
+  ]
+  if (benchmark) {
+    series.push({ name: '基准(买入持有)', type: 'line', data: benchmark, showSymbol: false,
+                  lineStyle: { width: 1.5, type: 'dashed', color: '#9ca3af' } })
+  }
+  series.push({ name: '回撤%', type: 'line', data: drawdown, showSymbol: false, xAxisIndex: 1, yAxisIndex: 1,
+                areaStyle: { color: 'rgba(16,185,129,0.25)' }, lineStyle: { color: '#10b981' } })
   chart.setOption({
     tooltip: { trigger: 'axis' },
-    legend: { data: ['权益', '回撤%'] },
+    legend: { data: series.map((s) => s.name) },
     grid: [{ top: 40, height: '55%' }, { top: '72%', height: '18%' }],
     xAxis: [
       { type: 'category', data: dates, gridIndex: 0 },
@@ -233,12 +259,8 @@ async function render(run) {
       { type: 'value', scale: true, gridIndex: 0 },
       { type: 'value', gridIndex: 1, max: 0 },
     ],
-    series: [
-      { name: '权益', type: 'line', data: equity, showSymbol: false, lineStyle: { width: 2 } },
-      { name: '回撤%', type: 'line', data: drawdown, showSymbol: false, xAxisIndex: 1, yAxisIndex: 1,
-        areaStyle: { color: 'rgba(16,185,129,0.25)' }, lineStyle: { color: '#10b981' } },
-    ],
-  })
+    series,
+  }, true)
   chart.resize()
 }
 
@@ -258,4 +280,5 @@ onUnmounted(() => {
 .metric { background: #f9fafb; border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; }
 .metric-label { color: #6b7280; font-size: 12px; }
 .metric-value { font-size: 20px; font-weight: 700; }
+.month-cell { border-radius: 6px; padding: 6px 10px; min-width: 76px; text-align: center; }
 </style>

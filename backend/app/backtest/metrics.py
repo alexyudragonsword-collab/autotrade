@@ -1,10 +1,46 @@
 """回测绩效指标。"""
 
 import numpy as np
+import pandas as pd
 
 from app.backtest.engine import BtResult
 
 TRADING_DAYS = 252
+
+
+def benchmark_curve(bars: dict[str, pd.DataFrame], calendar: pd.DatetimeIndex,
+                    initial_cash: float) -> list[float]:
+    """等权买入持有基准：期初按首个可见收盘价等权买入，此后不动。"""
+    n = len(bars)
+    if n == 0 or len(calendar) == 0:
+        return []
+    alloc = initial_cash / n
+    shares = {sym: alloc / float(df["close"].iloc[0]) for sym, df in bars.items()}
+    curve = []
+    for ts in calendar:
+        total = 0.0
+        for sym, df in bars.items():
+            visible = df.loc[df.index <= ts]
+            if visible.empty:
+                total += alloc  # 尚无行情按现金计
+            else:
+                total += shares[sym] * float(visible["close"].iloc[-1])
+        curve.append(round(total, 2))
+    return curve
+
+
+def monthly_returns(equity_curve: list) -> list[dict]:
+    """[[date, equity, ...], ...] → [{"month": "2026-01", "ret": 0.023}, ...]"""
+    if len(equity_curve) < 2:
+        return []
+    s = pd.Series([p[1] for p in equity_curve],
+                  index=pd.to_datetime([p[0] for p in equity_curve]))
+    month_end = s.resample("ME").last()
+    rets = month_end.pct_change()
+    # 首月相对期初
+    rets.iloc[0] = month_end.iloc[0] / s.iloc[0] - 1
+    return [{"month": ts.strftime("%Y-%m"), "ret": round(float(r), 4)}
+            for ts, r in rets.items() if pd.notna(r)]
 
 
 def compute_metrics(result: BtResult) -> dict:

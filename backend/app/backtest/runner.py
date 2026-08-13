@@ -56,7 +56,19 @@ def _run(run_id: int) -> None:
         )
         result = engine.run()
         run.metrics = compute_metrics(result)
-        run.equity_curve = result.equity_curve
+
+        # 等权买入持有基准与月度收益
+        from app.backtest.metrics import benchmark_curve, monthly_returns
+
+        bench = benchmark_curve(engine.bars, engine.calendar, run.initial_cash)
+        curve = result.equity_curve
+        if bench and len(bench) == len(curve):
+            curve = [[d, e, b] for (d, e), b in zip(curve, bench)]
+            bench_return = bench[-1] / bench[0] - 1 if bench[0] else 0.0
+            run.metrics["benchmark_return"] = round(float(bench_return), 4)
+            run.metrics["alpha"] = round(run.metrics["total_return"] - float(bench_return), 4)
+        run.metrics["monthly_returns"] = monthly_returns(curve)
+        run.equity_curve = curve
         run.trades = [asdict(t) for t in result.trades]
         run.status = BacktestStatus.DONE
         run.progress = 1.0

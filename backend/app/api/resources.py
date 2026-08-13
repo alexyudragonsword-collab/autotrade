@@ -261,6 +261,82 @@ async def broker_account(name: str):
         raise HTTPException(400, str(e))
 
 
+# ---------- 手动下单 ----------
+
+
+class ManualOrderBody(BaseModel):
+    broker: str
+    symbol: str  # 内部格式：US.AAPL / HK.00700 / SH.600519
+    side: str  # buy | sell
+    order_type: str = "market"
+    qty: float
+    limit_price: float | None = None
+
+
+@router.post("/manual-order")
+async def manual_order(body: ManualOrderBody, db: Session = Depends(get_db)):
+    """手动下单：与信号同样经过风控闸门，并以 Signal(source=manual) 留痕。"""
+    import uuid
+
+    from app.domain.enums import Market, OrderSide, OrderType, SignalStatus
+    from app.domain.schemas import OrderIntent
+    from app.risk.engine import get_risk_engine
+
+    prefix = body.symbol.split(".", 1)[0]
+    market = {"US": Market.US, "HK": Market.HK, "SH": Market.CN, "SZ": Market.CN}.get(prefix)
+    if market is None:
+        raise HTTPException(400, "symbol 必须是内部格式，如 US.AAPL / HK.00700 / SH.600519")
+    try:
+        side = OrderSide(body.side)
+        order_type = OrderType(body.order_type)
+    except ValueError:
+        raise HTTPException(400, "side 必须是 buy/sell，order_type 必须是 market/limit")
+    if body.qty <= 0:
+        raise HTTPException(400, "qty 必须为正数")
+    if order_type == OrderType.LIMIT and body.limit_price is None:
+        raise HTTPException(400, "限价单必须提供 limit_price")
+
+    est_price = body.limit_price
+    if est_price is None:
+        adapter = get_broker_manager().get_if_connected(body.broker)
+        if adapter is not None:
+            quote = await adapter.get_quote(body.symbol)
+            if quote is not None:
+                est_price = quote.price
+        if est_price is None:
+            import asyncio as aio
+
+            from app.data.store import get_bar_store
+
+            est_price = await aio.to_thread(get_bar_store().last_close, body.symbol)
+
+    sig = Signal(source="manual", dedup_key=f"manual:{uuid.uuid4().hex}",
+                 symbol=body.symbol, market=market, action=body.side,
+                 quantity=body.qty, order_type=body.order_type, price=est_price,
+                 status=SignalStatus.RECEIVED)
+    db.add(sig)
+    db.commit()
+    db.refresh(sig)
+
+    intent = OrderIntent(symbol=body.symbol, market=market, side=side,
+                         order_type=order_type, qty=body.qty, est_price=est_price,
+                         broker=body.broker, strategy="manual")
+    decision = get_risk_engine().check(db, intent)
+    if not decision.allowed:
+        sig.status = SignalStatus.REJECTED_RISK
+        sig.reject_reason = f"[{decision.rule_name}] {decision.reason}"[:300]
+        db.commit()
+        raise HTTPException(400, f"风控拦截：{decision.reason}")
+
+    order = await get_order_manager().submit(intent, signal_id=sig.id)
+    sig.status = "failed" if order.status == "failed" else "routed"
+    sig.reject_reason = order.error_msg
+    db.commit()
+    if order.status == "failed":
+        raise HTTPException(400, f"下单失败：{order.error_msg}")
+    return {"signal_id": sig.id, "order_id": order.id, "status": order.status}
+
+
 # ---------- 自选 watchlist ----------
 
 

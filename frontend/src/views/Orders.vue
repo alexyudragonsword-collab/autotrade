@@ -2,12 +2,15 @@
   <el-tabs v-model="tab">
     <el-tab-pane label="订单" name="orders">
       <el-card>
-        <div style="margin-bottom: 12px">
-          <el-select v-model="status" placeholder="全部状态" clearable style="width: 150px" @change="loadOrders(1)">
-            <el-option v-for="s in ['submitted', 'partially_filled', 'filled', 'cancelled', 'rejected', 'failed']"
-                       :key="s" :label="s" :value="s" />
-          </el-select>
-          <el-button style="margin-left: 8px" @click="loadOrders(page)">刷新</el-button>
+        <div style="margin-bottom: 12px; display: flex; justify-content: space-between">
+          <span>
+            <el-select v-model="status" placeholder="全部状态" clearable style="width: 150px" @change="loadOrders(1)">
+              <el-option v-for="s in ['submitted', 'partially_filled', 'filled', 'cancelled', 'rejected', 'failed']"
+                         :key="s" :label="s" :value="s" />
+            </el-select>
+            <el-button style="margin-left: 8px" @click="loadOrders(page)">刷新</el-button>
+          </span>
+          <el-button type="primary" @click="manualDialog = true">手动下单</el-button>
         </div>
         <el-table :data="orders" v-loading="loading">
           <el-table-column prop="id" label="ID" width="70" />
@@ -62,6 +65,43 @@
       </el-card>
     </el-tab-pane>
   </el-tabs>
+
+  <el-dialog v-model="manualDialog" title="手动下单（经过风控）" width="440px">
+    <el-form :model="manualForm" label-width="90px">
+      <el-form-item label="券商">
+        <el-select v-model="manualForm.broker">
+          <el-option label="paper（模拟）" value="paper" />
+          <el-option label="futu（富途）" value="futu" />
+          <el-option label="ibkr（盈透）" value="ibkr" />
+        </el-select>
+      </el-form-item>
+      <el-form-item label="标的">
+        <el-input v-model="manualForm.symbol" placeholder="US.AAPL / HK.00700 / SH.600519" />
+      </el-form-item>
+      <el-form-item label="方向">
+        <el-radio-group v-model="manualForm.side">
+          <el-radio value="buy">买入</el-radio>
+          <el-radio value="sell">卖出</el-radio>
+        </el-radio-group>
+      </el-form-item>
+      <el-form-item label="类型">
+        <el-radio-group v-model="manualForm.order_type">
+          <el-radio value="market">市价</el-radio>
+          <el-radio value="limit">限价</el-radio>
+        </el-radio-group>
+      </el-form-item>
+      <el-form-item label="数量">
+        <el-input-number v-model="manualForm.qty" :min="1" style="width: 180px" />
+      </el-form-item>
+      <el-form-item v-if="manualForm.order_type === 'limit'" label="限价">
+        <el-input-number v-model="manualForm.limit_price" :min="0" :precision="3" style="width: 180px" />
+      </el-form-item>
+    </el-form>
+    <template #footer>
+      <el-button @click="manualDialog = false">取消</el-button>
+      <el-button type="primary" :loading="placing" @click="placeManual">下单</el-button>
+    </template>
+  </el-dialog>
 </template>
 
 <script setup>
@@ -80,6 +120,21 @@ const loading = ref(false)
 const positions = ref([])
 const posLoading = ref(false)
 const syncing = ref(false)
+const manualDialog = ref(false)
+const placing = ref(false)
+const manualForm = ref({ broker: 'paper', symbol: '', side: 'buy', order_type: 'market', qty: 100, limit_price: null })
+
+async function placeManual() {
+  placing.value = true
+  try {
+    const data = await client.post('/api/manual-order', manualForm.value)
+    ElMessage.success(`订单 #${data.order_id} 已提交（${data.status}）`)
+    manualDialog.value = false
+    loadOrders(1)
+  } finally {
+    placing.value = false
+  }
+}
 
 async function loadOrders(p = 1) {
   page.value = p
