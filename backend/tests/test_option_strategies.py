@@ -289,3 +289,69 @@ def test_custom_option_strategy_compiles(seeded):
     cls = compile_strategy_code(code)
     report = validate_strategy_class(cls)
     assert report["kind"] == "option"
+
+
+# ---------- CashSecuredPut ----------
+
+
+async def test_csp_sells_put(env, seeded):
+    from app.strategy.live import run_strategy_live
+
+    cfg_id = _strategy_row(seeded, "CashSecuredPut",
+                           {"otm_pct": 5, "contracts": 2})
+    summary = await run_strategy_live(cfg_id)
+    await asyncio.sleep(0.2)
+    assert summary["errors"] == []
+    assert summary["signals"] == 1
+    order = seeded.scalars(select(Order)).all()[0]
+    oc = OptionContract.parse(order.symbol)
+    assert order.side == "sell" and order.qty == 2
+    assert oc.right == "P" and oc.strike == 95.0
+
+    # 已有有效空头 Put → 不加仓
+    summary2 = await run_strategy_live(cfg_id)
+    await asyncio.sleep(0.1)
+    assert summary2["signals"] == 0
+
+
+async def test_csp_ignores_stock_and_never_sells_call(env, seeded):
+    """与车轮的区别：持有正股也继续只卖 Put，绝不卖 Call。"""
+    from app.strategy.live import run_strategy_live
+
+    seeded.add(Position(broker="paper", symbol="US.AAPL", market="US",
+                        qty=200, avg_cost=95.0))
+    seeded.commit()
+    cfg_id = _strategy_row(seeded, "CashSecuredPut")
+    summary = await run_strategy_live(cfg_id)
+    await asyncio.sleep(0.2)
+    assert summary["signals"] == 1
+    order = seeded.scalars(select(Order)).all()[0]
+    assert OptionContract.parse(order.symbol).right == "P"
+
+
+async def test_csp_rolls_near_expiry(env, seeded):
+    from app.strategy.live import run_strategy_live
+
+    near = f"US.AAPL|{_expiry(2)}|P|95"
+    seeded.add(Position(broker="paper", symbol=near, market="US",
+                        qty=-1, avg_cost=2.0, multiplier=100))
+    seeded.commit()
+    cfg_id = _strategy_row(seeded, "CashSecuredPut", {"roll_dte": 3})
+    summary = await run_strategy_live(cfg_id)
+    await asyncio.sleep(0.2)
+    assert summary["signals"] == 1  # 只买回，开新仓等下轮
+    order = seeded.scalars(select(Order)).all()[0]
+    assert order.side == "buy" and order.symbol == near
+
+
+async def test_csp_insufficient_cash_skips(env, seeded):
+    from app.db.models import AppSetting
+    from app.strategy.live import run_strategy_live
+
+    row = seeded.get(AppSetting, "paper_cash")
+    row.value = 5000  # 担保 1 张需 9500
+    seeded.commit()
+    cfg_id = _strategy_row(seeded, "CashSecuredPut")
+    summary = await run_strategy_live(cfg_id)
+    assert summary["signals"] == 0
+    assert seeded.scalars(select(Order)).all() == []

@@ -3,7 +3,7 @@
 from app.strategy.base import Strategy
 from app.strategy.builtin.rsi_reversion import RsiReversion
 from app.strategy.builtin.sma_cross import SmaCross
-from app.strategy.options import CoveredCall, OptionStrategy, WheelStrategy
+from app.strategy.options import CashSecuredPut, CoveredCall, OptionStrategy, WheelStrategy
 from app.strategy.portfolio import MomentumRotation, PortfolioStrategy
 
 _REGISTRY: dict[str, type] = {
@@ -11,6 +11,7 @@ _REGISTRY: dict[str, type] = {
     "RsiReversion": RsiReversion,
     "MomentumRotation": MomentumRotation,
     "CoveredCall": CoveredCall,
+    "CashSecuredPut": CashSecuredPut,
     "WheelStrategy": WheelStrategy,
 }
 

@@ -158,6 +158,56 @@ class CoveredCall(OptionStrategy):
         ctx.log(f"备兑卖出 {qty} 张 {item.symbol} @≈{price}")
 
 
+class CashSecuredPut(OptionStrategy):
+    """现金担保卖 Put：滚动卖出虚值 Put 收权利金（纯 Put 腿）。
+
+    每次运行：无有效空头 Put 且现金足以担保 → 卖出虚值 Put；
+    临近到期（dte ≤ roll_dte）→ 买回，下次运行开新一期。
+    被行权接货后不自动卖 Call——正股由你处置，或同标的另配 CoveredCall 策略接管
+    （需要自动换腿请用 WheelStrategy）。
+
+    策略侧现金检查只覆盖本标的新仓；账户级的担保总额由风控
+    CoveredOrSecuredRule 权威把关（含全部已有空头 Put 的占用）。
+    """
+
+    params = {"otm_pct": 5.0, "min_dte": 20, "max_dte": 45, "roll_dte": 3,
+              "contracts": 1}
+
+    async def on_run(self, ctx: OptionStrategyContext) -> None:
+        shorts = self.short_positions(ctx, "P")
+
+        # 滚动：临近到期先买回，下轮开新仓（单轮单向，避免开平竞态）
+        rolled = False
+        for pos in shorts:
+            if pos.dte <= int(self.p["roll_dte"]):
+                ctx.buy_close(pos.symbol, abs(pos.qty), multiplier=pos.multiplier)
+                ctx.log(f"滚动：买回 {pos.symbol}（剩 {pos.dte} 天）")
+                rolled = True
+        if rolled:
+            return
+        if shorts:
+            return  # 已有有效空头 Put，本期不加仓
+
+        item = await ctx.select_contract("P", int(self.p["min_dte"]),
+                                         int(self.p["max_dte"]), float(self.p["otm_pct"]))
+        if item is None:
+            ctx.log("未找到符合条件的 Put 合约，跳过")
+            return
+        qty = max(1, int(self.p["contracts"]))
+        need_cash = item.strike * item.multiplier * qty
+        cash = ctx.cash()
+        if cash is not None and cash < need_cash:
+            ctx.log(f"现金 {cash:,.0f} 不足以担保 {qty} 张（需 {need_cash:,.0f}），跳过")
+            return
+        price = self.mid_or_last(item)
+        if price is None:
+            ctx.log(f"{item.symbol} 无报价，跳过")
+            return
+        ctx.sell_open(item.symbol, qty, price=price, multiplier=item.multiplier)
+        ctx.log(f"现金担保卖出 {qty} 张 {item.symbol} @≈{price}"
+                f"（担保占用 {need_cash:,.0f}）")
+
+
 class WheelStrategy(OptionStrategy):
     """车轮策略：现金担保卖 Put 收权利金；被行权接货后自动切换为备兑卖 Call，循环。
 
