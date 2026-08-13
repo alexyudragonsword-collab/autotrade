@@ -1,5 +1,5 @@
 <template>
-  <el-tag :type="map[status]?.type || 'info'" size="small">{{ map[status]?.text || status }}</el-tag>
+  <el-tag :type="map[status]?.type || 'info'" size="small">{{ $t(map[status]?.text || status) }}</el-tag>
 </template>
 
 <script setup>

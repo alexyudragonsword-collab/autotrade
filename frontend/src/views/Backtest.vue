@@ -1,58 +1,58 @@
 <template>
   <el-row :gutter="16">
     <el-col :span="7">
-      <el-card header="发起回测">
+      <el-card :header="$t('发起回测')">
         <el-form :model="form" label-width="90px" label-position="top">
-          <el-form-item label="策略">
+          <el-form-item :label="$t('策略')">
             <el-select v-model="form.strategy_class" @change="onStrategyChange">
               <el-option v-for="b in builtin" :key="b.class_name" :label="b.class_name" :value="b.class_name" />
             </el-select>
-            <div style="color: #9ca3af; font-size: 12px">{{ currentDoc }}</div>
+            <div style="color: #9ca3af; font-size: 12px">{{ currentDoc ? $t(currentDoc) : '' }}</div>
           </el-form-item>
-          <el-form-item label="参数(JSON)">
+          <el-form-item :label="$t('参数(JSON)')">
             <el-input v-model="paramsText" type="textarea" :rows="2" />
-            <el-checkbox v-model="scanMode" style="margin-top: 4px">参数扫描（值写成数组，如 {"fast":[5,10,20],"slow":[30,60]}）</el-checkbox>
+            <el-checkbox v-model="scanMode" style="margin-top: 4px">{{ $t('参数扫描（值写成数组，如 {"fast":[5,10,20],"slow":[30,60]}）') }}</el-checkbox>
           </el-form-item>
-          <el-form-item label="市场 / 周期">
+          <el-form-item :label="$t('市场 / 周期')">
             <div style="display: flex; gap: 8px; width: 100%">
               <el-select v-model="form.market" style="flex: 1">
-                <el-option label="美股 (US)" value="US" />
-                <el-option label="A股 (CN)" value="CN" />
-                <el-option label="港股 (HK)" value="HK" />
+                <el-option :label="$t('美股 (US)')" value="US" />
+                <el-option :label="$t('A股 (CN)')" value="CN" />
+                <el-option :label="$t('港股 (HK)')" value="HK" />
               </el-select>
               <el-select v-model="form.timeframe" style="flex: 1">
-                <el-option label="日线" value="1d" />
-                <el-option label="60分钟" value="60m" />
-                <el-option label="15分钟" value="15m" />
-                <el-option label="5分钟" value="5m" />
+                <el-option :label="$t('日线')" value="1d" />
+                <el-option :label="$t('60分钟')" value="60m" />
+                <el-option :label="$t('15分钟')" value="15m" />
+                <el-option :label="$t('5分钟')" value="5m" />
               </el-select>
             </div>
             <div v-if="form.timeframe !== '1d'" style="color: #e6a23c; font-size: 12px">
-              分钟线数据源仅覆盖近期（美股约60天、A股近月），日期范围过长会自动裁剪
+              {{ $t('分钟线数据源仅覆盖近期（美股约60天、A股近月），日期范围过长会自动裁剪') }}
             </div>
           </el-form-item>
-          <el-form-item label="标的（逗号分隔）">
-            <el-input v-model="symbolsText" placeholder="AAPL,MSFT 或 600519" />
+          <el-form-item :label="$t('标的（逗号分隔）')">
+            <el-input v-model="symbolsText" :placeholder="$t('AAPL,MSFT 或 600519')" />
           </el-form-item>
-          <el-form-item label="日期区间">
+          <el-form-item :label="$t('日期区间')">
             <el-date-picker v-model="dateRange" type="daterange" value-format="YYYY-MM-DD" style="width: 100%" />
           </el-form-item>
-          <el-form-item label="初始资金">
+          <el-form-item :label="$t('初始资金')">
             <el-input-number v-model="form.initial_cash" :min="1000" :step="10000" style="width: 100%" />
           </el-form-item>
-          <el-button type="primary" style="width: 100%" :loading="submitting" @click="submit">开始回测</el-button>
+          <el-button type="primary" style="width: 100%" :loading="submitting" @click="submit">{{ $t('开始回测') }}</el-button>
         </el-form>
       </el-card>
 
-      <el-card header="历史回测" style="margin-top: 16px">
+      <el-card :header="$t('历史回测')" style="margin-top: 16px">
         <el-table :data="runs" size="small" highlight-current-row @current-change="showRun">
           <el-table-column prop="id" label="#" width="50" />
-          <el-table-column prop="strategy_class" label="策略" />
-          <el-table-column label="状态" width="100">
+          <el-table-column prop="strategy_class" :label="$t('策略')" />
+          <el-table-column :label="$t('状态')" width="100">
             <template #default="{ row }">
               <el-progress v-if="row.status === 'running'" :percentage="Math.round(row.progress * 100)" :stroke-width="6" />
               <el-tag v-else :type="{ done: 'success', failed: 'danger', queued: 'info' }[row.status]" size="small">
-                {{ { done: '完成', failed: '失败', queued: '排队' }[row.status] }}
+                {{ $t({ done: '完成', failed: '失败', queued: '排队' }[row.status] || row.status) }}
               </el-tag>
             </template>
           </el-table-column>
@@ -61,22 +61,22 @@
     </el-col>
 
     <el-col :span="17">
-      <el-card v-if="scanGroup" :header="`参数扫描对比 — 已完成 ${scanGroup.finished}/${scanGroup.total}（按夏普降序）`" style="margin-bottom: 16px">
+      <el-card v-if="scanGroup" :header="`${$t('参数扫描对比')} ${scanGroup.finished}/${scanGroup.total} ${$t('（按夏普降序）')}`" style="margin-bottom: 16px">
         <el-table :data="scanGroup.items" size="small" max-height="380" highlight-current-row
                   @current-change="(row) => row && showRun(row)">
           <el-table-column prop="id" label="#" width="60" />
-          <el-table-column label="参数"><template #default="{ row }">{{ JSON.stringify(row.params) }}</template></el-table-column>
-          <el-table-column label="夏普" width="80"><template #default="{ row }">{{ row.metrics?.sharpe ?? '…' }}</template></el-table-column>
-          <el-table-column label="年化" width="90"><template #default="{ row }">{{ row.metrics ? pct(row.metrics.annual_return) : '…' }}</template></el-table-column>
-          <el-table-column label="回撤" width="90"><template #default="{ row }">{{ row.metrics ? pct(row.metrics.max_drawdown) : '…' }}</template></el-table-column>
-          <el-table-column label="胜率" width="80"><template #default="{ row }">{{ row.metrics ? pct(row.metrics.win_rate) : '…' }}</template></el-table-column>
+          <el-table-column :label="$t('参数')"><template #default="{ row }">{{ JSON.stringify(row.params) }}</template></el-table-column>
+          <el-table-column :label="$t('夏普')" width="80"><template #default="{ row }">{{ row.metrics?.sharpe ?? '…' }}</template></el-table-column>
+          <el-table-column :label="$t('年化')" width="90"><template #default="{ row }">{{ row.metrics ? pct(row.metrics.annual_return) : '…' }}</template></el-table-column>
+          <el-table-column :label="$t('回撤')" width="90"><template #default="{ row }">{{ row.metrics ? pct(row.metrics.max_drawdown) : '…' }}</template></el-table-column>
+          <el-table-column :label="$t('胜率')" width="80"><template #default="{ row }">{{ row.metrics ? pct(row.metrics.win_rate) : '…' }}</template></el-table-column>
         </el-table>
       </el-card>
       <el-card v-if="detail">
         <template #header>
           <div style="display: flex; justify-content: space-between; align-items: center">
-            <span>回测 #{{ detail.id }} — {{ detail.strategy_class }} {{ JSON.stringify(detail.params) }}</span>
-            <el-button v-if="detail.status === 'done'" size="small" @click="downloadReport">导出报告</el-button>
+            <span>{{ $t('回测') }} #{{ detail.id }} — {{ detail.strategy_class }} {{ JSON.stringify(detail.params) }}</span>
+            <el-button v-if="detail.status === 'done'" size="small" @click="downloadReport">{{ $t('导出报告') }}</el-button>
           </div>
         </template>
         <el-alert v-if="detail.error_msg" type="error" :title="detail.error_msg" :closable="false" style="margin-bottom: 12px" />
@@ -91,7 +91,7 @@
           </el-row>
           <div ref="chartEl" style="height: 360px; margin-top: 16px" />
           <template v-if="detail.metrics?.monthly_returns?.length">
-            <el-divider>月度收益</el-divider>
+            <el-divider>{{ $t('月度收益') }}</el-divider>
             <div style="display: flex; flex-wrap: wrap; gap: 6px">
               <div v-for="m in detail.metrics.monthly_returns" :key="m.month" class="month-cell"
                    :style="{ background: m.ret >= 0 ? 'rgba(239,68,68,0.12)' : 'rgba(16,185,129,0.12)',
@@ -101,36 +101,36 @@
               </div>
             </div>
           </template>
-          <el-divider>K 线走查（买卖点标注）</el-divider>
+          <el-divider>{{ $t('K 线走查（买卖点标注）') }}</el-divider>
           <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px">
-            <el-select v-model="chartSymbol" placeholder="选择标的" style="width: 200px" @change="loadKline">
+            <el-select v-model="chartSymbol" :placeholder="$t('选择标的')" style="width: 200px" @change="loadKline">
               <el-option v-for="s in detail.symbols" :key="s" :label="s" :value="s" />
             </el-select>
-            <span style="color: #9ca3af; font-size: 12px">红三角=买入，绿三角=卖出（悬停看价格数量）</span>
+            <span style="color: #9ca3af; font-size: 12px">{{ $t('红三角=买入，绿三角=卖出（悬停看价格数量）') }}</span>
           </div>
           <div v-show="klineLoaded" ref="klineEl" style="height: 380px" />
-          <el-divider>交易明细（{{ (detail.trades || []).length }} 笔）</el-divider>
+          <el-divider>{{ $t('交易明细') }} ({{ (detail.trades || []).length }})</el-divider>
           <el-table :data="detail.trades" size="small" max-height="300">
-            <el-table-column prop="date" label="日期" width="110" />
-            <el-table-column prop="symbol" label="标的" width="100" />
-            <el-table-column prop="side" label="方向" width="70">
+            <el-table-column prop="date" :label="$t('日期')" width="110" />
+            <el-table-column prop="symbol" :label="$t('标的')" width="100" />
+            <el-table-column prop="side" :label="$t('方向')" width="70">
               <template #default="{ row }">
-                <span :style="{ color: row.side === 'buy' ? '#ef4444' : '#10b981' }">{{ row.side === 'buy' ? '买入' : '卖出' }}</span>
+                <span :style="{ color: row.side === 'buy' ? '#ef4444' : '#10b981' }">{{ $t(row.side === 'buy' ? '买入' : '卖出') }}</span>
               </template>
             </el-table-column>
-            <el-table-column prop="qty" label="数量" width="90" />
-            <el-table-column prop="price" label="价格" width="100" />
-            <el-table-column prop="fee" label="费用" width="90" />
-            <el-table-column prop="pnl" label="已实现盈亏">
+            <el-table-column prop="qty" :label="$t('数量')" width="90" />
+            <el-table-column prop="price" :label="$t('价格')" width="100" />
+            <el-table-column prop="fee" :label="$t('费用')" width="90" />
+            <el-table-column prop="pnl" :label="$t('已实现盈亏')">
               <template #default="{ row }">
                 <span v-if="row.pnl != null" :style="{ color: row.pnl >= 0 ? '#ef4444' : '#10b981' }">{{ row.pnl }}</span>
               </template>
             </el-table-column>
           </el-table>
         </template>
-        <el-empty v-else-if="detail.status !== 'failed'" description="回测运行中…" />
+        <el-empty v-else-if="detail.status !== 'failed'" :description="$t('回测运行中…')" />
       </el-card>
-      <el-empty v-else-if="!scanGroup" description="发起回测或从左侧选择历史记录" />
+      <el-empty v-else-if="!scanGroup" :description="$t('发起回测或从左侧选择历史记录')" />
     </el-col>
   </el-row>
 </template>
@@ -140,6 +140,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import * as echarts from 'echarts'
 import client from '../api/client'
+import { tr } from '../i18n'
 import { pct, fmt } from '../utils'
 
 const builtin = ref([])
@@ -189,7 +190,7 @@ async function loadKline(symbol) {
   const ohlc = data.kline.map((k) => [k[1], k[2], k[3], k[4]])  // [open, close, low, high]
   const markPoints = data.trades.map((t) => ({
     coord: [t.date, t.price],
-    value: `${t.side === 'buy' ? '买' : '卖'} ${t.qty}@${t.price}`,
+    value: `${tr(t.side === 'buy' ? '买' : '卖')} ${t.qty}@${t.price}`,
     symbol: 'triangle',
     symbolSize: 12,
     symbolRotate: t.side === 'buy' ? 0 : 180,
@@ -204,8 +205,8 @@ async function loadKline(symbol) {
         if (!bar) return ''
         const [_, open, close, low, high] = bar.data
         const marks = data.trades.filter((t) => t.date === bar.axisValue)
-          .map((t) => `<br/>${t.side === 'buy' ? '🔺买入' : '🔻卖出'} ${t.qty} @ ${t.price}`)
-        return `${bar.axisValue}<br/>开 ${open} 收 ${close}<br/>低 ${low} 高 ${high}${marks.join('')}`
+          .map((t) => `<br/>${t.side === 'buy' ? '🔺' + tr('买入') : '🔻' + tr('卖出')} ${t.qty} @ ${t.price}`)
+        return `${bar.axisValue}<br/>O ${open} C ${close}<br/>L ${low} H ${high}${marks.join('')}`
       },
     },
     grid: { top: 20, bottom: 60 },
@@ -232,17 +233,17 @@ const metricCards = computed(() => {
   const m = detail.value?.metrics
   if (!m) return []
   const cards = [
-    { label: '总收益', value: pct(m.total_return), color: m.total_return >= 0 ? '#ef4444' : '#10b981' },
-    { label: '年化收益', value: pct(m.annual_return), color: m.annual_return >= 0 ? '#ef4444' : '#10b981' },
-    { label: '夏普比率', value: m.sharpe },
-    { label: '最大回撤', value: pct(m.max_drawdown), color: '#10b981' },
-    { label: '胜率', value: pct(m.win_rate) },
-    { label: '交易次数', value: m.trade_count },
-    { label: '期末权益', value: fmt(m.final_equity) },
+    { label: tr('总收益'), value: pct(m.total_return), color: m.total_return >= 0 ? '#ef4444' : '#10b981' },
+    { label: tr('年化收益'), value: pct(m.annual_return), color: m.annual_return >= 0 ? '#ef4444' : '#10b981' },
+    { label: tr('夏普比率'), value: m.sharpe },
+    { label: tr('最大回撤'), value: pct(m.max_drawdown), color: '#10b981' },
+    { label: tr('胜率'), value: pct(m.win_rate) },
+    { label: tr('交易次数'), value: m.trade_count },
+    { label: tr('期末权益'), value: fmt(m.final_equity) },
   ]
   if (m.benchmark_return != null) {
-    cards.push({ label: '基准(买入持有)', value: pct(m.benchmark_return) })
-    cards.push({ label: '超额收益 α', value: pct(m.alpha), color: m.alpha >= 0 ? '#ef4444' : '#10b981' })
+    cards.push({ label: tr('基准(买入持有)'), value: pct(m.benchmark_return) })
+    cards.push({ label: tr('超额收益 α'), value: pct(m.alpha), color: m.alpha >= 0 ? '#ef4444' : '#10b981' })
   }
   return cards
 })
@@ -257,7 +258,7 @@ async function submit() {
   try {
     params = JSON.parse(paramsText.value || '{}')
   } catch {
-    ElMessage.error('参数不是合法 JSON')
+    ElMessage.error(tr('参数不是合法 JSON'))
     return
   }
   submitting.value = true
@@ -269,11 +270,11 @@ async function submit() {
     }
     if (scanMode.value) {
       const data = await client.post('/api/backtests/scan', { ...form.value, param_grid: params, ...common })
-      ElMessage.success(`参数扫描已提交（${data.count} 组）`)
+      ElMessage.success(`${tr('参数扫描已提交')} (${data.count})`)
       pollScan(data.group_id)
     } else {
       const run = await client.post('/api/backtests', { ...form.value, params, ...common })
-      ElMessage.success('回测已提交')
+      ElMessage.success(tr('回测已提交'))
       pollRun(run.id)
     }
     await loadRuns()
@@ -338,13 +339,13 @@ async function render(run) {
     return +(((e - peak) / peak) * 100).toFixed(2)
   })
   const series = [
-    { name: '策略权益', type: 'line', data: equity, showSymbol: false, lineStyle: { width: 2 } },
+    { name: tr('策略权益'), type: 'line', data: equity, showSymbol: false, lineStyle: { width: 2 } },
   ]
   if (benchmark) {
-    series.push({ name: '基准(买入持有)', type: 'line', data: benchmark, showSymbol: false,
+    series.push({ name: tr('基准(买入持有)'), type: 'line', data: benchmark, showSymbol: false,
                   lineStyle: { width: 1.5, type: 'dashed', color: '#9ca3af' } })
   }
-  series.push({ name: '回撤%', type: 'line', data: drawdown, showSymbol: false, xAxisIndex: 1, yAxisIndex: 1,
+  series.push({ name: tr('回撤%'), type: 'line', data: drawdown, showSymbol: false, xAxisIndex: 1, yAxisIndex: 1,
                 areaStyle: { color: 'rgba(16,185,129,0.25)' }, lineStyle: { color: '#10b981' } })
   chart.setOption({
     tooltip: { trigger: 'axis' },
