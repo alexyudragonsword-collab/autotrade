@@ -28,6 +28,19 @@
 | 🌐 双语界面 | 中文 / English 一键切换（右上角），刷新后保持所选语言；Element Plus 组件（日期选择/分页等）与图表、消息提示同步切换 |
 | 📄 报告导出 | 回测一键导出自包含 HTML 报告（指标/权益曲线/月度收益/交易明细），离线可看、可直接分享 |
 
+## 文档
+
+| 文档 | 内容 |
+|---|---|
+| [docs/webui-guide.md](docs/webui-guide.md) | Web 后台使用手册（各页面 + 典型工作流） |
+| [docs/strategy-development.md](docs/strategy-development.md) | 策略开发指南（三类策略、ctx API、指标、常见坑） |
+| [docs/options.md](docs/options.md) | 期权交易指南（符号、卖方风控两档、内置策略、券商细节） |
+| [docs/tradingview-setup.md](docs/tradingview-setup.md) | TradingView 告警接入 |
+| [docs/broker-setup.md](docs/broker-setup.md) | 券商网关部署（富途 OpenD / IBKR） |
+| [docs/architecture.md](docs/architecture.md) | 架构说明（模块、数据流、设计决策） |
+| [docs/faq.md](docs/faq.md) | 常见问题与故障排查 |
+| [CHANGELOG.md](CHANGELOG.md) | 版本演进史 |
+
 ## 快速开始
 
 ```bash

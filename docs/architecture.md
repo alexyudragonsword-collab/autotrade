@@ -12,7 +12,7 @@ TradingView 告警 ──POST──▶ /webhook/tradingview/{token}
                               │
                         signals/pipeline
                               │  ① 匹配 StrategyConfig（signal_only=仅提醒 / live=下单）
-                              │  ② RiskEngine.check —— 9 条规则全过才放行（fail-closed）
+                              │  ② RiskEngine.check —— 12 条规则全过才放行（fail-closed）
                               ▼
                         execution/OrderManager ──▶ BrokerAdapter（paper / futu / ibkr）
                               │        ▲ 成交回报回调（状态机防乱序）
@@ -24,7 +24,7 @@ TradingView 告警 ──POST──▶ /webhook/tradingview/{token}
 
 - **brokers/**：`BrokerAdapter` 抽象（connect/place_order/cancel/positions/account/quote + 回报回调）。
   `BrokerManager` 负责注册、按市场路由、30 秒健康检查与自动重连；券商离线时信号被拒绝并通知，系统不崩溃。
-- **risk/**：规则清单见 `rules.py`（kill switch、白名单、卖出超持仓、交易时段、单笔金额、单标的持仓、总敞口、日订单数、日亏损）。任何规则抛异常按拒绝处理。所有判定写 `risk_events` 日志。
+- **risk/**：规则清单见 `rules.py`，共 12 条，按序：kill switch、期权开关、白名单（期权按正股匹配）、卖出超持仓（期权放行交给卖方规则）、备兑/现金担保、裸卖名义上限、交易时段、单笔金额、单标的持仓、总敞口、日订单数、日亏损。任何规则抛异常按拒绝处理；买入平空视为减风险不受限额约束。所有判定写 `risk_events` 日志。
 - **strategy/ + backtest/**：`Strategy.on_bar(ctx)` 基类回测/实盘共用。回测撮合规则：信号在第 i 根收盘产生 → 第 i+1 根开盘价成交（防未来函数），限价单按当日触及判定，当日有效。
 - **screener/**：规则为结构化 JSON。技术面表达式经 `ast.parse` 白名单校验（仅 OHLCV 列 + 注册指标函数 + 数字常量），杜绝任意代码执行。
 - **data/**：A股/港股用 akshare，美股用 yfinance；日线缓存为 parquet（`data/bars/`），增量更新。
@@ -128,10 +128,26 @@ risk_events / notify_channels / app_settings / users。
   `OptionStrategyContext` 提供 spot/正股持仓/期权持仓/现金/`select_contract`（到期区间内最近
   到期日 + 虚值比例最近档行权价）/sell_open/buy_close。
 - 内置 **CoveredCall**（正股足额→滚动卖虚值 Call；dte≤roll_dte 先买回、下轮开新仓，避免同轮
-  开平竞态）与 **WheelStrategy**（无正股→现金担保卖 Put；接货后自动切换备兑 Call 腿）。
+  开平竞态）、**CashSecuredPut**（纯 Put 腿滚动收权利金，接货后正股由用户处置）与
+  **WheelStrategy**（无正股→现金担保卖 Put；接货后自动切换备兑 Call 腿）。
 - 驱动与股票策略一致（cron/手动运行），动作转信号走统一管道（备兑/担保/裸卖风控照常把关，
   signal_only 只提醒）；链数据源：执行账户 → 任一在线真实券商（paper 执行 + 真实链 = 模拟验证）。
 - 编辑器支持自定义 OptionStrategy（校验只查结构不试跑）；回测 API 明确拒绝期权策略。
+
+## 内置策略扩充（迭代11）
+
+单标的策略扩至 7 个（`strategy/builtin/`）：SmaCross、MacdTrend、RsiReversion、
+BollingerReversion、DonchianBreakout（海龟）、GridTrading、DcaInvest；
+组合 1 个（MomentumRotation）、期权 3 个（CoveredCall/CashSecuredPut/WheelStrategy）。
+全部注册进 registry，可回测（期权除外）、可实盘、可在编辑器派生改写。
+
+## 双语界面（迭代12）
+
+vue-i18n：中文原文即词条 key（`$t('仪表盘')`），zh 词典为空 → 缺失 key 原样返回即中文；
+en 词典按"中文→英文"映射（约 270 条，含后端策略 docstring）。`fallbackLocale: zh`、
+`missingWarn: false`。顶栏切换写 localStorage；ElConfigProvider 联动 Element Plus 组件语言；
+脚本侧（ElMessage/图表系列名）用 `tr()` 辅助函数。新增文案只需在 en 词典补一行，漏了也只是
+英文模式显示中文，不会坏。
 
 ## 已知取舍
 
