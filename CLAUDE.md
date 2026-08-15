@@ -43,6 +43,7 @@ uvicorn app.main:app --app-dir backend --host 0.0.0.0 --port 8000
 | `docs/webui-guide.md` / `docs/faq.md` | 面向用户的操作与排查 |
 | `docs/broker-setup.md` / `docs/tradingview-setup.md` | 券商网关与 TV 接入 |
 | `CHANGELOG.md` | 迭代演进史 |
+| `ROADMAP.md` | 规划方向与明确不做的事（新需求先对照这里） |
 
 ## 交付流程
 

@@ -40,6 +40,7 @@
 | [docs/architecture.md](docs/architecture.md) | 架构说明（模块、数据流、设计决策） |
 | [docs/faq.md](docs/faq.md) | 常见问题与故障排查 |
 | [CHANGELOG.md](CHANGELOG.md) | 版本演进史 |
+| [ROADMAP.md](ROADMAP.md) | 路线图（规划中的方向与明确不做的事） |
 
 ## 快速开始
 
