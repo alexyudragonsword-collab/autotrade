@@ -1,0 +1,19 @@
+version: 0.1
+project:
+  name: "AutoTrade"
+  summary: "TradingView 自动交易系统：FastAPI + Vue3，多券商（Paper/富途/IBKR）、股票 + 期权（含卖方）、回测/选股/风控/通知全流程，中英双语 Web 管理后台"
+cairn:
+  knowledge_dir: "cairn"
+  # 初始化时对应的 skill 规范日期（由 init 自动盖章，非用户决策）
+  skill_spec_date: "2026-08-07"
+  # git_policy: track | ignore | private_sync
+  git_policy: "track"
+  # language: 本项目生成 AGENTS.md/LOG.md/知识专题文档所用语言
+  language: "zh"
+graduation:
+  # 暂缓对接：尚未连接外部知识库，首次毕业时收集 provider 决策
+  # （见 references/graduation.md → Deferred provider）
+  provider: none
+history:
+  # migration_mode: start_fresh | inventory_only | selective_migrate
+  migration_mode: "inventory_only"
