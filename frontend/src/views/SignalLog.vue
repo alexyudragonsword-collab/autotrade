@@ -1,10 +1,22 @@
 <template>
   <el-card>
-    <div style="margin-bottom: 12px">
-      <el-select v-model="status" :placeholder="$t('全部状态')" clearable style="width: 160px" @change="load(1)">
+    <div style="margin-bottom: 12px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center">
+      <el-select v-model="status" :placeholder="$t('全部状态')" clearable style="width: 150px" @change="load(1)">
         <el-option v-for="(v, k) in statusOptions" :key="k" :label="$t(v)" :value="k" />
       </el-select>
-      <el-button style="margin-left: 8px" @click="load(page)">{{ $t('刷新') }}</el-button>
+      <el-select v-model="strategy" :placeholder="$t('全部策略')" clearable filterable style="width: 150px" @change="load(1)">
+        <el-option v-for="s in strategyOptions" :key="s" :label="s" :value="s" />
+      </el-select>
+      <el-select v-model="source" :placeholder="$t('全部来源')" clearable style="width: 140px" @change="load(1)">
+        <el-option v-for="(v, k) in sourceOptions" :key="k" :label="$t(v)" :value="k" />
+      </el-select>
+      <el-input v-model="symbol" :placeholder="$t('标的（支持模糊）')" clearable style="width: 170px"
+                @keyup.enter="load(1)" @clear="load(1)" />
+      <el-date-picker v-model="dateRange" type="daterange" :start-placeholder="$t('开始日期')"
+                      :end-placeholder="$t('结束日期')" style="width: 240px" @change="load(1)" />
+      <el-button @click="load(1)">{{ $t('查询') }}</el-button>
+      <el-button @click="reset">{{ $t('重置') }}</el-button>
+      <el-button type="primary" plain :loading="exporting" @click="exportCsv">{{ $t('导出 CSV') }}</el-button>
     </div>
     <el-table :data="items" v-loading="loading">
       <el-table-column prop="id" label="ID" width="70" />
@@ -36,15 +48,23 @@
 
 <script setup>
 import { onMounted, ref } from 'vue'
+import { ElMessage } from 'element-plus'
 import client from '../api/client'
 import SignalStatus from '../components/SignalStatus.vue'
-import { ts } from '../utils'
+import { downloadFile, rangeParams, ts } from '../utils'
+import { tr } from '../i18n'
 
 const items = ref([])
 const total = ref(0)
 const page = ref(1)
 const status = ref('')
+const strategy = ref('')
+const source = ref('')
+const symbol = ref('')
+const dateRange = ref(null)
+const strategyOptions = ref([])
 const loading = ref(false)
+const exporting = ref(false)
 const drawer = ref(false)
 const detail = ref({})
 
@@ -52,16 +72,51 @@ const statusOptions = {
   received: '已接收', rejected_risk: '风控拦截', rejected: '已拒绝',
   routed: '已下单', executed: '已执行', failed: '失败',
 }
+const sourceOptions = {
+  tradingview: 'TradingView', strategy: '本地策略', manual: '手动',
+  risk_guard: '持仓守护', expiry_guard: '到期守护',
+}
+
+/** 当前筛选条件 → 查询参数（列表与导出共用，保证导出的就是看到的） */
+function filterParams() {
+  return {
+    status: status.value || undefined,
+    strategy: strategy.value || undefined,
+    source: source.value || undefined,
+    symbol: symbol.value || undefined,
+    ...rangeParams(dateRange.value),
+  }
+}
 
 async function load(p = 1) {
   page.value = p
   loading.value = true
   try {
-    const data = await client.get('/api/signals', { params: { page: p, size: 20, status: status.value || undefined } })
+    const data = await client.get('/api/signals', { params: { page: p, size: 20, ...filterParams() } })
     items.value = data.items
     total.value = data.total
   } finally {
     loading.value = false
+  }
+}
+
+function reset() {
+  status.value = ''
+  strategy.value = ''
+  source.value = ''
+  symbol.value = ''
+  dateRange.value = null
+  load(1)
+}
+
+async function exportCsv() {
+  exporting.value = true
+  try {
+    await downloadFile('/api/signals/export.csv', 'signals.csv', filterParams())
+  } catch (e) {
+    ElMessage.error(`${tr('导出失败')}: ${e.message}`)
+  } finally {
+    exporting.value = false
   }
 }
 
@@ -70,5 +125,11 @@ async function showDetail(id) {
   drawer.value = true
 }
 
-onMounted(() => load())
+onMounted(async () => {
+  load()
+  try {
+    const strategies = await client.get('/api/strategies')
+    strategyOptions.value = strategies.map((s) => s.name)
+  } catch { /* 选项加载失败不影响列表 */ }
+})
 </script>

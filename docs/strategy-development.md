@@ -165,6 +165,10 @@ class MyPutSeller(OptionStrategy):
 | `STD(s, period=20)` | 滚动标准差 |
 | `REF(s, n=1)` | n 根 bar 之前的值 |
 | `ABS(s)` | 绝对值 |
+| `KDJ_K / KDJ_D / KDJ_J(high, low, close, period=9, k_period=3, d_period=3)` | KDJ 三线各自独立取用（选股表达式不支持字符串参数，故拆成三个函数）。K/D 恒在 0~100，J 可越界；横盘区间为零时 RSV 取中性值 50 |
+| `OBV(close, volume)` | 能量潮：收涨累加成交量、收跌累减，平盘不计 |
+| `VWAP(high, low, close, volume, period=20)` | **滚动窗口**成交量加权均价（典型价 (H+L+C)/3）。注意不是交易所盘中那条从开盘累计的 VWAP——日线上做累计无意义 |
+| `BBWIDTH(s, period=20, k=2)` | 布林带宽 =（上轨−下轨）/ 中轨，比值量纲（0.1 = 均线的 10%）。收窄至历史低位常预示变盘 |
 
 需要更多指标：直接在策略代码里用 pandas 手写，或在 `backend/app/screener/indicators.py` 注册（同时惠及选股表达式）。
 

@@ -149,6 +149,24 @@ en 词典按"中文→英文"映射（约 270 条，含后端策略 docstring）
 脚本侧（ElMessage/图表系列名）用 `tr()` 辅助函数。新增文案只需在 en 词典补一行，漏了也只是
 英文模式显示中文，不会坏。
 
+## 渠道/指标/日志扩充（迭代14）
+
+- **通知渠道** 增至 8 个：新增飞书（加签同钉钉但签名算法不同：以 `{ts}\n{secret}` 为密钥对空串做 HMAC）、
+  Discord（1900 字截断，成功返回 204 无响应体）、Bark（标题/正文分离，WARN/ERROR 用 `timeSensitive`
+  穿透 iOS 专注模式）、Server酱（按 sendkey 形态选接口：`sctp{uid}t…` 走 Server酱³ 专属域名）。
+  `Notifier.format_body()` 为标题/正文分离的渠道新增；`CHANNEL_TYPES` 由 `_NOTIFIERS` 派生，
+  API 校验与前端下拉不再各自硬编码清单。
+- **指标** 增至 15 个：BBWIDTH / OBV / VWAP（滚动窗口口径）/ KDJ_K・KDJ_D・KDJ_J。KDJ 拆成三个函数
+  是因为选股表达式的 ast 白名单**只允许数字常量**，无法用 `out="k"` 这类字符串参数选线。
+  横盘（区间为零）时 RSV 取中性值 50、零成交量时 VWAP 返回 NaN——都避免静默产生 inf/NaN 传染后续比较。
+- **日志筛选与导出**：`/api/signals` 与 `/api/audit-logs` 支持组合筛选 + 同条件 `export.csv`
+  （BOM + attachment 头，上限 1 万行）。两处易错点已固化在测试里：导出路由必须声明在
+  `/{id}` 之前（否则 `export.csv` 被当作 int 路径参数），以及 **SQLAlchemy 的 SQLite 绑定会丢弃
+  时区偏移而不换算**——`_parse_dt` 统一把带偏移的时刻换算成 UTC naive，否则传 `+08:00` 会静默偏差 8 小时。
+- **参数扫描热力图**：前端按"取值多于一个"识别真正变化的参数，2 个→二维热力图、1 个→柱状图、
+  >2 个→提示看排名表；回撤色带反向。**期权链自动刷新**：后台刷新失败保留上次数据并自动停表，
+  不对故障网关持续重试；卸载清定时器。
+
 ## 已知取舍
 
 - 日亏损基于成交时逐笔落库的 realized_pnl（持仓均价口径），IBKR 会再用 commissionReport

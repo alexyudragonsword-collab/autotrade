@@ -8,17 +8,27 @@ from app.db.base import SessionLocal
 from app.db.models import NotifyChannel, Order
 from app.domain.enums import NotifyLevel
 from app.domain.schemas import NotifyEvent
+from app.notify.bark import BarkNotifier
 from app.notify.base import Notifier
 from app.notify.dingtalk import DingtalkNotifier
+from app.notify.discord import DiscordNotifier
 from app.notify.email import EmailNotifier
+from app.notify.lark import LarkNotifier
+from app.notify.serverchan import ServerChanNotifier
 from app.notify.telegram import TelegramNotifier
 from app.notify.wecom import WecomNotifier
 
 logger = logging.getLogger(__name__)
 
 _NOTIFIERS: dict[str, Notifier] = {
-    n.type: n for n in (TelegramNotifier(), EmailNotifier(), WecomNotifier(), DingtalkNotifier())
+    n.type: n for n in (
+        TelegramNotifier(), EmailNotifier(), WecomNotifier(), DingtalkNotifier(),
+        LarkNotifier(), DiscordNotifier(), BarkNotifier(), ServerChanNotifier(),
+    )
 }
+
+# 供 API 校验与前端下拉使用的渠道类型清单
+CHANNEL_TYPES = tuple(_NOTIFIERS)
 
 
 def channel_matches(ch: NotifyChannel, event: NotifyEvent) -> bool:
@@ -116,6 +126,10 @@ def seed_channels_from_env(db) -> None:
         "email": bool(s.smtp_host and s.smtp_to),
         "wecom": bool(s.wecom_webhook_url),
         "dingtalk": bool(s.dingtalk_webhook_url),
+        "lark": bool(s.lark_webhook_url),
+        "discord": bool(s.discord_webhook_url),
+        "bark": bool(s.bark_url),
+        "serverchan": bool(s.serverchan_sendkey),
     }
     existing = {c.type for c in db.scalars(select(NotifyChannel)).all()}
     for ctype, ok in available.items():

@@ -71,6 +71,17 @@
           <el-table-column :label="$t('回撤')" width="90"><template #default="{ row }">{{ row.metrics ? pct(row.metrics.max_drawdown) : '…' }}</template></el-table-column>
           <el-table-column :label="$t('胜率')" width="80"><template #default="{ row }">{{ row.metrics ? pct(row.metrics.win_rate) : '…' }}</template></el-table-column>
         </el-table>
+        <div v-if="scanVaryKeys.length && scanVaryKeys.length <= 2" style="margin-top: 12px">
+          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px">
+            <span style="color: #6b7280; font-size: 13px">{{ $t('指标') }}</span>
+            <el-radio-group v-model="scanMetric" size="small" @change="renderScanChart">
+              <el-radio-button v-for="m in scanMetricOptions" :key="m.key" :value="m.key">{{ $t(m.label) }}</el-radio-button>
+            </el-radio-group>
+          </div>
+          <div ref="scanChartEl" style="height: 300px"></div>
+        </div>
+        <el-alert v-else-if="scanVaryKeys.length > 2" type="info" :closable="false" show-icon style="margin-top: 12px"
+                  :title="$t('超过 2 个参数同时变化，无法用二维热力图呈现——请看上方表格排名。')" />
       </el-card>
       <el-card v-if="detail">
         <template #header>
@@ -157,10 +168,109 @@ const scanGroup = ref(null)
 const klineEl = ref(null)
 const chartSymbol = ref('')
 const klineLoaded = ref(false)
+const scanChartEl = ref(null)
+const scanMetric = ref('sharpe')
 let chart = null
 let klineChart = null
+let scanChart = null
 let timer = null
 let scanTimer = null
+
+const scanMetricOptions = [
+  { key: 'sharpe', label: '夏普', percent: false },
+  { key: 'annual_return', label: '年化', percent: true },
+  { key: 'max_drawdown', label: '回撤', percent: true },
+  { key: 'win_rate', label: '胜率', percent: true },
+]
+
+/** 扫描结果里真正在变化的参数名（只有一个取值的参数不进坐标轴）。 */
+const scanVaryKeys = computed(() => {
+  const items = scanGroup.value?.items || []
+  if (items.length < 2) return []
+  const values = {}
+  for (const it of items) {
+    for (const [k, v] of Object.entries(it.params || {})) {
+      (values[k] ||= new Set()).add(JSON.stringify(v))
+    }
+  }
+  return Object.keys(values).filter((k) => values[k].size > 1)
+})
+
+/** 参数值升序去重；数字按数值排序，其余按字符串。 */
+function axisValues(items, key) {
+  const uniq = [...new Set(items.map((i) => i.params?.[key]))]
+  return uniq.sort((a, b) => (typeof a === 'number' && typeof b === 'number' ? a - b : String(a).localeCompare(String(b))))
+}
+
+function renderScanChart() {
+  const keys = scanVaryKeys.value
+  const items = (scanGroup.value?.items || []).filter((i) => i.metrics)
+  if (!keys.length || keys.length > 2 || !items.length || !scanChartEl.value) return
+  // v-if 重建 DOM 后旧实例挂在已分离的节点上，需重新初始化
+  if (scanChart && scanChart.getDom() !== scanChartEl.value) {
+    scanChart.dispose()
+    scanChart = null
+  }
+  if (!scanChart) scanChart = echarts.init(scanChartEl.value)
+
+  const opt = scanMetricOptions.find((m) => m.key === scanMetric.value)
+  const val = (m) => {
+    const v = m?.[scanMetric.value]
+    return v == null ? null : +(opt.percent ? v * 100 : v).toFixed(3)
+  }
+  const unit = opt.percent ? '%' : ''
+  // 回撤为负值，越接近 0 越好；其余越大越好
+  const isDrawdown = scanMetric.value === 'max_drawdown'
+
+  if (keys.length === 1) {
+    const xs = axisValues(items, keys[0])
+    const data = xs.map((x) => val(items.find((i) => i.params[keys[0]] === x)?.metrics))
+    scanChart.setOption({
+      tooltip: { trigger: 'axis', valueFormatter: (v) => (v == null ? '-' : v + unit) },
+      grid: { left: 60, right: 20, top: 20, bottom: 50 },
+      xAxis: { type: 'category', data: xs, name: keys[0], nameLocation: 'middle', nameGap: 28 },
+      yAxis: { type: 'value', axisLabel: { formatter: `{value}${unit}` } },
+      series: [{ type: 'bar', data, itemStyle: { color: '#3b82f6' } }],
+    }, true)
+    return
+  }
+
+  const [kx, ky] = keys
+  const xs = axisValues(items, kx)
+  const ys = axisValues(items, ky)
+  const cells = []
+  let min = Infinity
+  let max = -Infinity
+  for (const it of items) {
+    const v = val(it.metrics)
+    if (v == null) continue
+    cells.push([xs.indexOf(it.params[kx]), ys.indexOf(it.params[ky]), v])
+    min = Math.min(min, v)
+    max = Math.max(max, v)
+  }
+  if (!cells.length) return
+  scanChart.setOption({
+    tooltip: {
+      formatter: (p) => `${kx}=${xs[p.data[0]]}<br/>${ky}=${ys[p.data[1]]}<br/>${tr(opt.label)}: ${p.data[2]}${unit}`,
+    },
+    // top 留出 y 轴名的高度，否则 name 会被图表顶边裁掉
+    grid: { left: 70, right: 80, top: 34, bottom: 50 },
+    xAxis: { type: 'category', data: xs, name: kx, nameLocation: 'middle', nameGap: 28 },
+    yAxis: { type: 'category', data: ys, name: ky, nameGap: 12 },
+    visualMap: {
+      min: min === max ? min - 1 : min,
+      max: min === max ? max + 1 : max,
+      calculable: true, orient: 'vertical', right: 0, top: 'center',
+      // 回撤越浅越好，故反转色带方向
+      inRange: { color: isDrawdown ? ['#ef4444', '#fde68a', '#22c55e'] : ['#e0f2fe', '#60a5fa', '#1d4ed8'] },
+    },
+    series: [{
+      type: 'heatmap', data: cells,
+      label: { show: xs.length * ys.length <= 60, fontSize: 10 },
+      emphasis: { itemStyle: { borderColor: '#111', borderWidth: 1 } },
+    }],
+  }, true)
+}
 
 async function downloadReport() {
   const resp = await fetch(`/api/backtests/${detail.value.id}/report`, {
@@ -288,6 +398,8 @@ function pollScan(groupId) {
   const tick = async () => {
     scanGroup.value = await client.get(`/api/backtests/groups/${groupId}`)
     if (scanGroup.value.finished >= scanGroup.value.total) clearInterval(scanTimer)
+    await nextTick()
+    renderScanChart()
   }
   tick()
   scanTimer = setInterval(tick, 2000)
@@ -374,6 +486,7 @@ onUnmounted(() => {
   clearInterval(scanTimer)
   chart?.dispose()
   klineChart?.dispose()
+  scanChart?.dispose()
 })
 </script>
 

@@ -8,12 +8,17 @@
                 @keyup.enter="loadExpirations" />
       <el-button type="primary" :loading="loadingExp" @click="loadExpirations">{{ $t('加载到期日') }}</el-button>
       <el-select v-if="expirations.length" v-model="expiry" :placeholder="$t('到期日')" style="width: 160px"
-                 @change="loadChain">
+                 @change="() => loadChain()">
         <el-option v-for="e in expirations" :key="e" :label="fmtDate(e)" :value="e" />
       </el-select>
-      <el-switch v-if="expiry" v-model="withQuotes" :active-text="$t('含报价')" @change="loadChain" />
+      <el-switch v-if="expiry" v-model="withQuotes" :active-text="$t('含报价')" @change="onQuotesToggle" />
+      <el-switch v-if="expiry && withQuotes" v-model="autoRefresh" :active-text="$t('自动刷新')" @change="setupAutoRefresh" />
+      <el-select v-if="autoRefresh && withQuotes" v-model="refreshSec" style="width: 100px" @change="setupAutoRefresh">
+        <el-option v-for="s in [5, 10, 30, 60]" :key="s" :label="`${s}s`" :value="s" />
+      </el-select>
       <span v-if="chain" style="color: #6b7280; font-size: 13px; margin-left: auto">
         {{ $t('正股') }} {{ chain.underlying_price != null ? chain.underlying_price : '-' }} · ×{{ chain.multiplier }}
+        <span v-if="lastUpdated" style="margin-left: 8px">· {{ $t('更新于') }} {{ lastUpdated }}</span>
       </span>
     </div>
 
@@ -31,7 +36,12 @@
         <el-table-column :label="$t('最新')" width="80" align="right">
           <template #default="{ row }">{{ n(row.call?.last) }}</template>
         </el-table-column>
-        <el-table-column label="" width="80" align="center">
+        <el-table-column :label="$t('价差')" width="72" align="right">
+          <template #default="{ row }">
+            <span :style="{ color: spreadColor(row.call) }">{{ spreadText(row.call) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="" width="72" align="center">
           <template #default="{ row }">
             <el-button v-if="row.call" link type="danger" size="small" @click="trade(row.call)">{{ $t('交易') }}</el-button>
           </template>
@@ -43,9 +53,14 @@
         </template>
       </el-table-column>
       <el-table-column label="Put" align="center">
-        <el-table-column label="" width="80" align="center">
+        <el-table-column label="" width="72" align="center">
           <template #default="{ row }">
             <el-button v-if="row.put" link type="success" size="small" @click="trade(row.put)">{{ $t('交易') }}</el-button>
+          </template>
+        </el-table-column>
+        <el-table-column :label="$t('价差')" width="72" align="right">
+          <template #default="{ row }">
+            <span :style="{ color: spreadColor(row.put) }">{{ spreadText(row.put) }}</span>
           </template>
         </el-table-column>
         <el-table-column :label="$t('买价')" width="80" align="right">
@@ -69,7 +84,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import client from '../api/client'
 import { tr } from '../i18n'
 import ManualOrderDialog from '../components/ManualOrderDialog.vue'
@@ -86,6 +101,45 @@ const loadingExp = ref(false)
 const loadingChain = ref(false)
 const dialogOpen = ref(false)
 const prefill = ref(null)
+const autoRefresh = ref(false)
+const refreshSec = ref(10)
+const lastUpdated = ref('')
+let refreshTimer = null
+
+/** 买卖价差占中间价的比例——宽价差意味着流动性差，滑点会吃掉权利金。 */
+function spreadRatio(c) {
+  if (!c || c.bid == null || c.ask == null) return null
+  const mid = (c.bid + c.ask) / 2
+  if (!mid) return null
+  return (c.ask - c.bid) / mid
+}
+
+function spreadText(c) {
+  const r = spreadRatio(c)
+  return r == null ? '-' : (r * 100).toFixed(1) + '%'
+}
+
+function spreadColor(c) {
+  const r = spreadRatio(c)
+  if (r == null) return ''
+  if (r > 0.15) return '#ef4444'
+  if (r > 0.05) return '#e6a23c'
+  return '#22c55e'
+}
+
+function setupAutoRefresh() {
+  clearInterval(refreshTimer)
+  refreshTimer = null
+  // 仅在已选到期日且要报价时轮询——无报价的链是静态数据，刷了也不会变
+  if (autoRefresh.value && withQuotes.value && expiry.value) {
+    refreshTimer = setInterval(() => loadChain(true), refreshSec.value * 1000)
+  }
+}
+
+function onQuotesToggle() {
+  setupAutoRefresh()
+  loadChain()
+}
 
 const brokerAccounts = computed(() =>
   accounts.value.filter((a) => ['futu', 'ibkr'].includes(a.type) && a.connected))
@@ -109,6 +163,8 @@ async function loadExpirations() {
   expirations.value = []
   expiry.value = ''
   chain.value = null
+  lastUpdated.value = ''
+  setupAutoRefresh()  // expiry 已清空，等于停表
   loadingExp.value = true
   try {
     const data = await client.get('/api/options/expirations',
@@ -122,18 +178,26 @@ async function loadExpirations() {
   }
 }
 
-async function loadChain() {
+async function loadChain(silent = false) {
   if (!expiry.value) return
   error.value = ''
-  loadingChain.value = true
+  if (!silent) loadingChain.value = true
   try {
     chain.value = await client.get('/api/options/chain', {
       params: { broker: broker.value, underlying: underlying.value, expiry: expiry.value,
                 with_quotes: withQuotes.value, strikes_around: 20 },
     })
+    lastUpdated.value = new Date().toLocaleTimeString('zh-CN', { hour12: false })
   } catch (e) {
-    chain.value = null
     error.value = e.response?.data?.detail || String(e)
+    if (silent) {
+      // 后台刷新失败：保留上一次的链数据（标记为过期），并停掉轮询，
+      // 不对已经出问题的网关每几秒重试一次
+      autoRefresh.value = false
+      setupAutoRefresh()
+    } else {
+      chain.value = null
+    }
   } finally {
     loadingChain.value = false
   }
@@ -154,6 +218,8 @@ onMounted(async () => {
   accounts.value = await client.get('/api/broker-accounts')
   if (brokerAccounts.value.length) broker.value = brokerAccounts.value[0].name
 })
+
+onUnmounted(() => clearInterval(refreshTimer))
 </script>
 
 <style>

@@ -1,9 +1,12 @@
 """信号 / 订单 / 持仓 / 风控 / 通知 / 券商 / 设置 等资源 API。"""
 
 import asyncio
+import csv
+import io
 import logging
+from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -21,7 +24,7 @@ from app.db.models import (
     TradeFill,
 )
 from app.execution.order_manager import get_order_manager
-from app.notify.dispatcher import get_dispatcher
+from app.notify.dispatcher import CHANNEL_TYPES, get_dispatcher
 
 logger = logging.getLogger(__name__)
 
@@ -38,18 +41,92 @@ def _row(obj) -> dict:
     return {c.name: getattr(obj, c.name) for c in obj.__table__.columns}
 
 
+# 导出行数上限，防止一次拉全表打爆内存
+_EXPORT_MAX_ROWS = 10000
+
+
+def _parse_dt(value: str | None, *, end_of_day: bool = False) -> datetime | None:
+    """解析筛选用时间。接受 ISO 时刻（带任意时区偏移）或纯日期（按 UTC 解释）。
+
+    纯日期作为区间末端时补到当天 23:59:59.999999，使区间为闭区间。
+    带偏移的时刻一律换算成 UTC 并去掉 tzinfo：SQLite 存的是 UTC 墙钟值，
+    而 SQLAlchemy 的 SQLite 绑定只会丢弃偏移、不做换算——不在此处归一化，
+    传 +08:00 的时间戳会静默偏差 8 小时。
+    """
+    if not value:
+        return None
+    text = value.strip().replace("Z", "+00:00")
+    try:
+        dt = datetime.fromisoformat(text)
+    except ValueError:
+        raise HTTPException(400, f"时间格式无法解析: {value}")
+    if len(text) == 10 and end_of_day:  # 纯日期 YYYY-MM-DD
+        dt = dt + timedelta(days=1) - timedelta(microseconds=1)
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt
+
+
+def _csv_response(header: list[str], rows: list[list], filename: str) -> Response:
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(header)
+    writer.writerows(rows)
+    # BOM 让 Excel 正确识别 UTF-8，避免中文乱码
+    body = "﻿" + buf.getvalue()
+    return Response(
+        content=body.encode("utf-8"),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 # ---------- 信号 ----------
 
 
-@router.get("/signals")
-def list_signals(status: str | None = None, page: int = 1, size: int = 20,
-                 db: Session = Depends(get_db)):
+def _signal_query(status, strategy, symbol, source, date_from, date_to):
+    """信号列表与导出共用的筛选条件。"""
     stmt = select(Signal).order_by(Signal.id.desc())
     if status:
         stmt = stmt.where(Signal.status == status)
+    if strategy:
+        stmt = stmt.where(Signal.strategy_name == strategy)
+    if symbol:
+        stmt = stmt.where(Signal.symbol.ilike(f"%{symbol}%"))
+    if source:
+        stmt = stmt.where(Signal.source == source)
+    start = _parse_dt(date_from)
+    if start:
+        stmt = stmt.where(Signal.created_at >= start)
+    end = _parse_dt(date_to, end_of_day=True)
+    if end:
+        stmt = stmt.where(Signal.created_at <= end)
+    return stmt
+
+
+@router.get("/signals")
+def list_signals(status: str | None = None, strategy: str | None = None,
+                 symbol: str | None = None, source: str | None = None,
+                 date_from: str | None = None, date_to: str | None = None,
+                 page: int = 1, size: int = 20, db: Session = Depends(get_db)):
+    stmt = _signal_query(status, strategy, symbol, source, date_from, date_to)
     result = _paginate(db, stmt, page, size)
     result["items"] = [_row(s) for s in result["items"]]
     return result
+
+
+# 必须声明在 /signals/{signal_id} 之前，否则 export.csv 会被当作 signal_id 解析
+@router.get("/signals/export.csv")
+def export_signals(status: str | None = None, strategy: str | None = None,
+                   symbol: str | None = None, source: str | None = None,
+                   date_from: str | None = None, date_to: str | None = None,
+                   db: Session = Depends(get_db)):
+    stmt = _signal_query(status, strategy, symbol, source, date_from, date_to)
+    signals = db.scalars(stmt.limit(_EXPORT_MAX_ROWS)).all()
+    cols = ["id", "created_at", "source", "strategy_name", "symbol", "market", "action",
+            "quantity", "order_type", "price", "status", "reject_reason"]
+    rows = [[getattr(s, c) for c in cols] for s in signals]
+    return _csv_response(cols, rows, "signals.csv")
 
 
 @router.get("/signals/{signal_id}")
@@ -204,8 +281,8 @@ def list_channels(db: Session = Depends(get_db)):
 
 @router.post("/notify/channels")
 def create_channel(body: ChannelBody, db: Session = Depends(get_db)):
-    if body.type not in ("telegram", "email", "wecom", "dingtalk"):
-        raise HTTPException(400, "type 必须是 telegram/email/wecom/dingtalk")
+    if body.type not in CHANNEL_TYPES:
+        raise HTTPException(400, f"type 必须是 {'/'.join(CHANNEL_TYPES)} 之一")
     ch = NotifyChannel(**body.model_dump())
     db.add(ch)
     db.commit()
@@ -511,14 +588,46 @@ def remove_from_watchlist(symbol: str, db: Session = Depends(get_db)):
 # ---------- 审计日志 ----------
 
 
-@router.get("/audit-logs")
-def list_audit_logs(page: int = 1, size: int = 20, db: Session = Depends(get_db)):
+def _audit_query(username, method, path, date_from, date_to):
+    """审计日志列表与导出共用的筛选条件。"""
     from app.db.models import AuditLog
 
     stmt = select(AuditLog).order_by(AuditLog.id.desc())
+    if username:
+        stmt = stmt.where(AuditLog.username == username)
+    if method:
+        stmt = stmt.where(AuditLog.method == method.upper())
+    if path:
+        stmt = stmt.where(AuditLog.path.ilike(f"%{path}%"))
+    start = _parse_dt(date_from)
+    if start:
+        stmt = stmt.where(AuditLog.ts >= start)
+    end = _parse_dt(date_to, end_of_day=True)
+    if end:
+        stmt = stmt.where(AuditLog.ts <= end)
+    return stmt
+
+
+@router.get("/audit-logs")
+def list_audit_logs(username: str | None = None, method: str | None = None,
+                    path: str | None = None, date_from: str | None = None,
+                    date_to: str | None = None,
+                    page: int = 1, size: int = 20, db: Session = Depends(get_db)):
+    stmt = _audit_query(username, method, path, date_from, date_to)
     result = _paginate(db, stmt, page, size)
     result["items"] = [_row(a) for a in result["items"]]
     return result
+
+
+@router.get("/audit-logs/export.csv")
+def export_audit_logs(username: str | None = None, method: str | None = None,
+                      path: str | None = None, date_from: str | None = None,
+                      date_to: str | None = None, db: Session = Depends(get_db)):
+    stmt = _audit_query(username, method, path, date_from, date_to)
+    logs = db.scalars(stmt.limit(_EXPORT_MAX_ROWS)).all()
+    cols = ["id", "ts", "username", "method", "path", "status_code", "ip", "body"]
+    rows = [[getattr(a, c) for c in cols] for a in logs]
+    return _csv_response(cols, rows, "audit_logs.csv")
 
 
 # ---------- 设置 ----------

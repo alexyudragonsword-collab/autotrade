@@ -51,6 +51,34 @@
                   :title="$t('密钥（富途解锁密码等）在服务器 .env 中配置。富途需 OpenD 网关，盈透需 TWS/IB Gateway；同一 Gateway 的多个 IBKR 账户需不同 client_id。')" />
       </el-card>
 
+      <el-card :header="$t('审计日志')" style="margin-top: 16px">
+        <div style="margin-bottom: 12px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center">
+          <el-select v-model="auditMethod" :placeholder="$t('全部方法')" clearable style="width: 130px" @change="loadAudit(1)">
+            <el-option label="POST" value="POST" />
+            <el-option label="PUT" value="PUT" />
+            <el-option label="DELETE" value="DELETE" />
+          </el-select>
+          <el-input v-model="auditPath" :placeholder="$t('路径（支持模糊）')" clearable style="width: 200px"
+                    @keyup.enter="loadAudit(1)" @clear="loadAudit(1)" />
+          <el-date-picker v-model="auditRange" type="daterange" :start-placeholder="$t('开始日期')"
+                          :end-placeholder="$t('结束日期')" style="width: 240px" @change="loadAudit(1)" />
+          <el-button @click="loadAudit(1)">{{ $t('查询') }}</el-button>
+          <el-button type="primary" plain :loading="auditExporting" @click="exportAudit">{{ $t('导出 CSV') }}</el-button>
+        </div>
+        <el-table :data="auditItems" v-loading="auditLoading" size="small">
+          <el-table-column prop="ts" :label="$t('时间')" width="165">
+            <template #default="{ row }">{{ ts(row.ts) }}</template>
+          </el-table-column>
+          <el-table-column prop="username" :label="$t('用户')" width="100" />
+          <el-table-column prop="method" :label="$t('方法')" width="80" />
+          <el-table-column prop="path" :label="$t('路径')" show-overflow-tooltip />
+          <el-table-column prop="status_code" :label="$t('状态码')" width="80" />
+          <el-table-column prop="ip" label="IP" width="130" />
+        </el-table>
+        <el-pagination style="margin-top: 12px" layout="total, prev, pager, next" :total="auditTotal"
+                       :page-size="20" :current-page="auditPage" @current-change="loadAudit" />
+      </el-card>
+
       <el-dialog v-model="accountDialog" :title="$t('添加券商账户')" width="480px">
         <el-form :model="accountForm" label-width="110px">
           <el-form-item :label="$t('类型')">
@@ -98,6 +126,48 @@ import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import client from '../api/client'
 import { tr } from '../i18n'
+import { downloadFile, rangeParams, ts } from '../utils'
+
+// ---- 审计日志 ----
+const auditItems = ref([])
+const auditTotal = ref(0)
+const auditPage = ref(1)
+const auditMethod = ref('')
+const auditPath = ref('')
+const auditRange = ref(null)
+const auditLoading = ref(false)
+const auditExporting = ref(false)
+
+function auditParams() {
+  return {
+    method: auditMethod.value || undefined,
+    path: auditPath.value || undefined,
+    ...rangeParams(auditRange.value),
+  }
+}
+
+async function loadAudit(p = 1) {
+  auditPage.value = p
+  auditLoading.value = true
+  try {
+    const data = await client.get('/api/audit-logs', { params: { page: p, size: 20, ...auditParams() } })
+    auditItems.value = data.items
+    auditTotal.value = data.total
+  } finally {
+    auditLoading.value = false
+  }
+}
+
+async function exportAudit() {
+  auditExporting.value = true
+  try {
+    await downloadFile('/api/audit-logs/export.csv', 'audit_logs.csv', auditParams())
+  } catch (e) {
+    ElMessage.error(`${tr('导出失败')}: ${e.message}`)
+  } finally {
+    auditExporting.value = false
+  }
+}
 
 const settings = ref({})
 const brokers = ref({})
@@ -176,7 +246,10 @@ function copy(text) {
   ElMessage.success(tr('已复制'))
 }
 
-onMounted(load)
+onMounted(() => {
+  load()
+  loadAudit()
+})
 </script>
 
 <style scoped>

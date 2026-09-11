@@ -53,6 +53,11 @@ class Settings(BaseSettings):
     wecom_webhook_url: str = ""
     dingtalk_webhook_url: str = ""
     dingtalk_secret: str = ""
+    lark_webhook_url: str = ""
+    lark_secret: str = ""
+    discord_webhook_url: str = ""
+    bark_url: str = ""          # 含 key 的完整地址，如 https://api.day.app/yourkey
+    serverchan_sendkey: str = ""
 
     @property
     def data_path(self) -> Path:

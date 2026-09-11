@@ -35,7 +35,12 @@
             <el-option :label="$t('邮件')" value="email" />
             <el-option :label="$t('企业微信')" value="wecom" />
             <el-option :label="$t('钉钉')" value="dingtalk" />
+            <el-option :label="$t('飞书')" value="lark" />
+            <el-option label="Discord" value="discord" />
+            <el-option :label="$t('Bark（iOS 推送）')" value="bark" />
+            <el-option :label="$t('Server酱（微信）')" value="serverchan" />
           </el-select>
+          <div style="color: #9ca3af; font-size: 12px">{{ $t(envHints[form.type] || '') }}</div>
         </el-form-item>
         <el-form-item :label="$t('名称')"><el-input v-model="form.name" /></el-form-item>
         <el-form-item :label="$t('最低级别')">
@@ -78,7 +83,21 @@ const loading = ref(false)
 const dialog = ref(false)
 const form = ref({})
 const testingId = ref(null)
-const typeNames = { telegram: 'Telegram', email: '邮件', wecom: '企业微信', dingtalk: '钉钉' }
+const typeNames = {
+  telegram: 'Telegram', email: '邮件', wecom: '企业微信', dingtalk: '钉钉',
+  lark: '飞书', discord: 'Discord', bark: 'Bark（iOS 推送）', serverchan: 'Server酱（微信）',
+}
+// 各渠道需要在服务器 .env 配置的变量名
+const envHints = {
+  telegram: '.env: TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID',
+  email: '.env: SMTP_HOST / SMTP_PORT / SMTP_USER / SMTP_PASSWORD / SMTP_TO',
+  wecom: '.env: WECOM_WEBHOOK_URL',
+  dingtalk: '.env: DINGTALK_WEBHOOK_URL（加签需 DINGTALK_SECRET）',
+  lark: '.env: LARK_WEBHOOK_URL（加签需 LARK_SECRET）',
+  discord: '.env: DISCORD_WEBHOOK_URL',
+  bark: '.env: BARK_URL（含 key 的完整地址，如 https://api.day.app/yourkey）',
+  serverchan: '.env: SERVERCHAN_SENDKEY',
+}
 const filterStrategies = ref([])
 const filterBrokers = ref([])
 const strategyOptions = ref([])
