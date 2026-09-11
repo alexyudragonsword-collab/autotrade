@@ -8,6 +8,7 @@
 - 历史迁移模式：`inventory_only`。
 - 原 `CLAUDE.md` 的工程规则并入 `AGENTS.md`（「工程硬性约定」等节），`CLAUDE.md` 改为一行 `@AGENTS.md` 桩。
 - 详见 `AGENTS.md` 与 `.cairn/config.yaml`。
+- 已合并至 main（`b41431f`）——此为当前 main 位置，下方盘点条目中「main 同步于 ROADMAP 提交」为当时快照。
 
 ## 2026-08-16 · 历史盘点（inventory_only）
 
