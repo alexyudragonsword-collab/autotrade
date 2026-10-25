@@ -70,14 +70,16 @@ TradingView 自动交易系统：FastAPI 后端 + Vue3 前端，多券商（Pape
 ## 常用命令与测试注意
 
 ```bash
-cd backend && python -m pytest tests -q    # 后端全量测试（须在 backend/ 下运行，当前 145 个）
+python -m pytest -q                        # 后端全量测试（仓库根目录运行，与 CI 一致，当前 191 个）
 cd frontend && npm run build               # 改前端后必须构建通过
 uvicorn app.main:app --app-dir backend --host 0.0.0.0 --port 8000   # 本地起服务（先 cp .env.example .env）
 ```
 
-- 测试自带 SQLite 临时库（0001 基线建表），券商用 stub；yfinance/akshare 全 mock，勿写真实网络测试。
+- 测试自带 SQLite 临时库（0001 基线建表），券商用 stub；yfinance/akshare 全 mock，勿写真实网络测试（conftest 已自动把 BarStore 的数据源换成离线空源）。
 - Paper 撮合"先发成交回报再更新持仓"，依赖此顺序的测试勿改次序。
 
 ## 交付流程
 
 改动完成的定义：后端 pytest 全绿 + 前端构建通过 + 相关文档同步（尤其 `docs/architecture.md` 的规则数/策略清单等易漂移处）+ README 功能表按需补行 + 本文件「知识沉淀规则」的完成答复门禁。演示用 `data/`、`.env` 不入库（已 gitignore）。
+
+**推送后必须确认 GitHub Actions CI 为绿**——本地全绿不等于仓库全绿：本地工作区可能有被 `.gitignore` 吞掉、从未提交的文件。曾因 `.gitignore` 的 `data/` 误匹配 `backend/app/data/`，整个行情包从未入库，CI 从第一轮起持续失败而无人察觉。新增 `.gitignore` 规则一律锚定路径（`/data/` 而非 `data/`），新增目录后用 `git check-ignore -v <文件>` 确认。

@@ -15,10 +15,10 @@ jobs:
           python-version: "3.12"
           cache: pip
       - name: Install dependencies
+        # 直接按 pyproject.toml 安装，避免手写清单与项目依赖脱节
         run: |
-          pip install fastapi 'uvicorn[standard]' sqlalchemy pydantic pydantic-settings \
-            PyJWT bcrypt pandas numpy apscheduler httpx pyarrow python-multipart alembic \
-            pytest pytest-asyncio yfinance
+          pip install -U pip setuptools wheel
+          pip install -e '.[data,dev]'
       - name: Run tests
         run: pytest -q
         working-directory: .

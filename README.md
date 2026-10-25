@@ -48,7 +48,10 @@
 # 1. 配置
 cp .env.example .env   # 修改密码、JWT_SECRET、WEBHOOK_SECRET
 
-# 2. 安装依赖
+# 2. 安装依赖（建议用虚拟环境；先升级 pip/setuptools，
+#    否则系统自带的旧 setuptools 可能装不上 akshare 的依赖 jsonpath）
+python3 -m venv .venv && source .venv/bin/activate
+pip install -U pip setuptools wheel
 pip install -e '.[data,dev]'      # 核心 + 数据源 + 测试
 # 按需：pip install -e '.[futu]' / '.[ibkr]'
 
@@ -114,7 +117,7 @@ curl -X POST "http://localhost:8000/webhook/tradingview/<TOKEN>" \
 ## 测试
 
 ```bash
-pytest -q          # 145 个单测 + 端到端测试（GitHub Actions 自动运行）
+pytest -q          # 191 个单测 + 端到端测试（GitHub Actions 自动运行，不联网）
 ```
 
 ## 运维

@@ -27,7 +27,11 @@ TradingView 告警 ──POST──▶ /webhook/tradingview/{token}
 - **risk/**：规则清单见 `rules.py`，共 12 条，按序：kill switch、期权开关、白名单（期权按正股匹配）、卖出超持仓（期权放行交给卖方规则）、备兑/现金担保、裸卖名义上限、交易时段、单笔金额、单标的持仓、总敞口、日订单数、日亏损。任何规则抛异常按拒绝处理；买入平空视为减风险不受限额约束。所有判定写 `risk_events` 日志。
 - **strategy/ + backtest/**：`Strategy.on_bar(ctx)` 基类回测/实盘共用。回测撮合规则：信号在第 i 根收盘产生 → 第 i+1 根开盘价成交（防未来函数），限价单按当日触及判定，当日有效。
 - **screener/**：规则为结构化 JSON。技术面表达式经 `ast.parse` 白名单校验（仅 OHLCV 列 + 注册指标函数 + 数字常量），杜绝任意代码执行。
-- **data/**：A股/港股用 akshare，美股用 yfinance；日线缓存为 parquet（`data/bars/`），增量更新。
+- **data/**（`backend/app/data/`）：A股/港股用 akshare，美股用 yfinance；每个标的每个周期一个 parquet 缓存（`data/bars/US_AAPL.parquet`、`US_AAPL_15m.parquet`）。
+  `BarStore.get_bars` 只补缺口（区间头部 / 缓存末尾之后，尾部与缓存重叠 5 根），同一缺口 10 分钟内不重复请求；
+  数据源失败不抛错、退回缓存；日线为前复权，重叠段收盘价偏差 >0.5% 视为除权除息、整段重拉，避免新旧复权口径混杂；
+  接受裸代码（回测页填 `AAPL` / `600519`），按 market 规范化。`last_close` 只读缓存不联网（守护/模拟撮合的兜底价）。
+  注：该包曾因 `.gitignore` 的 `data/` 误匹配而从未入库，原实现随会话上下文丢失，现为按调用方接口与测试重写的版本。
 - **调度**（APScheduler）：券商健康检查 30s、订单对账 60s（submitted 超时主动查单）、持仓同步 60s（以券商为准）、paper 限价单检查 20s、选股器按 cron。
 
 ## 数据库

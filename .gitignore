@@ -2,8 +2,10 @@
 .env
 *.pem
 
-# 运行时数据
-data/
+# 运行时数据（只匹配根目录；写成 data/ 会连带忽略代码包 backend/app/data/）
+/data/
+# 测试从 backend/ 目录运行时生成的临时数据
+/backend/data/
 *.db
 *.db-journal
 *.db-wal

@@ -2,6 +2,12 @@
 
 按迭代记录主要功能演进（完整细节见 git 历史与 `docs/architecture.md`）。
 
+## 修复 — 行情数据包 `backend/app/data/` 缺失导致无法启动
+- 根因：`.gitignore` 的 `data/` 同时匹配了代码包 `backend/app/data/`，该包从未提交；克隆下来的仓库启动即报 `No module named 'app.data'`，CI 自第一轮起持续失败、发布的 Docker 镜像同样不可用
+- 忽略规则改为 `/data/`（另加 `/backend/data/` 忽略测试临时数据）
+- 原实现已无法恢复，按 13 个调用方与既有测试确定的接口重写：符号规范化、akshare / yfinance 适配、BarStore 增量缓存（缺口补拉、失败退回缓存、复权变化整段重拉、裸代码规范化）
+- 新增 30 个数据层测试（mock 成真实返回结构）；conftest 统一让测试离线；CI 改为按 pyproject 安装依赖
+
 ## 迭代 14 — 通知渠道 / 指标 / 日志 / 图表扩充
 - 通知渠道增至 8 个：新增飞书、Discord、Bark（iOS，错误级穿透专注模式）、Server酱（兼容 Turbo 与 Server酱³）
 - 技术指标增至 15 个：KDJ（K/D/J 三线）、OBV、VWAP（滚动窗口）、BBWIDTH 布林带宽，选股表达式与策略共用
